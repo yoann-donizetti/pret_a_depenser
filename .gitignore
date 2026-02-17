@@ -1,0 +1,27 @@
+# Données
+data/raw/
+data/clean/
+data/processed/
+
+# MLflow
+mlruns/
+
+# Modèles exportés
+models/
+reports/
+
+# Python
+__pycache__/
+*.pyc
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Environnement
+.env
+.venv
+
+catboost_info
+mlflow.db
+
+artifacts
