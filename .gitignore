@@ -25,3 +25,6 @@ catboost_info
 mlflow.db
 
 artifacts
+# MLflow downloaded model
+app/model/model_mlflow/
+app/assets/X_api.csv

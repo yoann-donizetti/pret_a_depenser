@@ -22,7 +22,6 @@ def prepare_catboost_with_feature(X: pd.DataFrame):
             .astype(str)
         )
 
-    # CatBoost accepte cat_features en noms de colonnes (comme tu fais)
     cat_features = cat_cols
     return X_m, cat_features
 

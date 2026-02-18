@@ -7,6 +7,19 @@ Le projet est organisé en deux parties : **Partie 1/2 (MLflow + entraînement)*
 
 ---
 
+## Reproductibilité
+
+Le projet est reproductible en exécutant les notebooks dans l’ordre :
+
+- `01_data_preparation/*` : préparation et agrégation des tables
+- `02_benchmark/*` : benchmark des modèles
+- `03_modeling/*` : sélection features, tuning, seuil métier, modèle final
+- `04_preparation_API/*` : génération des features d’entrée API + packaging MLflow
+
+
+---
+
+
 ## Partie 1/2 — Etablir un modèle de scoring
 
 
