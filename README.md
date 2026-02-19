@@ -184,8 +184,25 @@ pret-a-depenser/
 
 ## Installation rapide
 Créer un environnement virtuel puis installer les dépendances :
+
+ ### API seule (prod / HF)
 ```bash
-pip install -r requirements.txt
+pip install .
+```
+
+ ### API + tests (CI)
+```bash
+pip install ".[dev]"
+```
+
+ ### notebooks + MLflow
+```bash
+pip install ".[notebooks]"
+```
+
+ ### Tout (dev + notebooks)
+```bash
+pip install ".[dev,notebooks]"
 ```
 
 ## Lancer MLflow UI (optionnel)
@@ -261,34 +278,3 @@ Ce projet fournit :
 - un tracking complet des expérimentations via MLflow
 - une API FastAPI testée (pytest)
 - une architecture prête pour le déploiement Docker / Hugging Face
-## Structure du projet
-
-```bash
-project/
-│
-├── data/
-│   ├── raw/
-│   ├── clean/
-│   └── processed/
-│
-├── notebooks/
-│   ├── 01_data_preparation/
-│   ├── 02_benchmark/
-│   └── 03_modeling/
-│
-├── outputs/
-│
-├── src/
-│   ├── data/
-│   ├── modeling/
-│   ├── tracking/
-│   └── utils/
-│
-├── requirements.txt
-└── README.md
-```
-## Installation rapide
-
-```bash
-pip install -r requirements.txt
-```
