@@ -8,8 +8,7 @@ app_port: 7860
 pinned: false
 ---
 
-# Prêt à Dépenser — Credit Scoring (MLOps)
-...
+
 
 # Prêt à Dépenser — Credit Scoring (MLOps)
 
@@ -44,6 +43,14 @@ Le projet est organisé en deux parties :
   - [Mode local](#mode-local)
   - [Mode Hugging Face](#mode-hugging-face)
 - [Tests unitaires](#tests-unitaires)
+- [Run (Production / Hugging Face Space)](#run-production--hugging-face-space)
+  - [Lancer en local](#lancer-en-local)
+  - [Lancer via Docker (exemple)](#lancer-via-docker-exemple)
+  - [Déploiement automatique](#déploiement-automatique)
+- [Secrets / Sécurité](#secrets--sécurité)
+  - [Variables d’environnement](#variables-denvironnement)
+  - [Gestion des tokens](#gestion-des-tokens)
+  - [Validation des entrées API](#validation-des-entrées-api)
 - [Résultat final](#résultat-final)
 
 ---
@@ -285,9 +292,62 @@ Lancer les tests :
 ```bash
 pytest --cov=app
 ```
+
+## Run (Production / Hugging Face Space)
+### Lancer en local
+
+```bash
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Swagger :
+http://127.0.0.1:8000/docs
+
+### Lancer via Docker (exemple)
+
+```bash
+docker build -t pad-api .
+docker run -p 7860:7860 pad-api
+```
+
+
+### Déploiement automatique
+Le déploiement est automatisé via GitHub Actions (CD) :
+à chaque push sur main, si la CI passe, le code est automatiquement synchronisé et déployé sur Hugging Face Spaces.
+
+## Secrets / Sécurité
+### Variables d’environnement
+Les variables sont configurées via :
+- Hugging Face Spaces → Settings → Variables and secrets
+- GitHub → Settings → Secrets and variables → Actions (pour le workflow CD)
+
+Exemples de variables utilisées :
+- BUNDLE_SOURCE
+- HF_REPO_ID
+- HF_MODEL_PATH
+- HF_KEPT_PATH
+- HF_CAT_PATH
+- HF_THRESHOLD_PATH
+
+### Gestion des tokens
+Le token Hugging Face (HF_TOKEN) est stocké uniquement en tant que Secret.
+**Aucun token n’est présent dans le code source ou dans GitHub.**
+
+
+### Validation des entrées API
+Les inputs sont validés via :
+- Pydantic (schéma d’entrée)
+- validate_payload() (contrôle strict)
+- Le système rejette automatiquement :
+- champs manquants
+- mauvais types
+- champs inconnus (protection contre payload invalide / injection)
+
+
 ## Résultat final
 Ce projet fournit :
 - un modèle de scoring optimisé selon un coût métier
 - un tracking complet des expérimentations via MLflow
 - une API FastAPI testée (pytest)
 - une architecture prête pour le déploiement Docker / Hugging Face
+

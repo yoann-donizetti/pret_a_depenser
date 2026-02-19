@@ -79,6 +79,8 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.get("/")
     def root():
+        return RedirectResponse(url="/docs")        
+    
         
     
 
@@ -91,7 +93,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     async def predict(payload: PredictRequest) -> JSONResponse:
         t0 = time.time()
         try:
-            payload_dict = payload.model_dump()
+            payload_dict = payload.model_dump(exclude_none=True)
 
             if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
                 return JSONResponse(
