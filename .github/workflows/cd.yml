@@ -1,0 +1,64 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main"]
+
+jobs:
+  deploy_hf_space:
+    name: CD / Deploy to Hugging Face Space
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (the commit that passed CI)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Install rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Deploy to Hugging Face Space (git push)
+        env:
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          rm -rf /tmp/hf-space
+          git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_REPO}" /tmp/hf-space
+
+          # On wipe le contenu du Space (sauf .git)
+          find /tmp/hf-space -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+
+          # Copie API
+          rsync -av app/ /tmp/hf-space/app/
+
+          # Copie fichiers nécessaires pour build/install
+          rsync -av Dockerfile requirements.txt pyproject.toml README.md /tmp/hf-space/ || true
+
+          # Optionnel
+          if [ -f "pytest.ini" ]; then rsync -av pytest.ini /tmp/hf-space/; fi
+
+          cd /tmp/hf-space
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+            exit 0
+          fi
+
+          git commit -m "Deploy from GitHub Actions (${GITHUB_SHA})"
+          git push
