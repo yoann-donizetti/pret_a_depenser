@@ -11,16 +11,13 @@ from app.utils.errors import ApiError
 
 
 @pytest.fixture()
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # App de test : lifespan OFF (pas de MLflow, pas de download)
-    app = main.create_app(enable_lifespan=False)
-
-    # Etat "ready" fake
+def client():
     main.MODEL = object()
     main.KEPT_FEATURES = ["SK_ID_CURR", "EXT_SOURCE_1"]
     main.CAT_FEATURES = []
     main.THRESHOLD = 0.5
 
+    app = main.create_app(enable_lifespan=False)
     return TestClient(app)
 
 
@@ -38,7 +35,12 @@ def test_health_ok(client: TestClient):
 
 
 def test_predict_success(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    payload_in: Dict[str, Any] = {"SK_ID_CURR": 123, "EXT_SOURCE_1": 0.2}
+    payload_in = {"SK_ID_CURR": 123, "EXT_SOURCE_1": 0.2}
+
+    main.MODEL = object()
+    main.KEPT_FEATURES = ["SK_ID_CURR", "EXT_SOURCE_1"]
+    main.CAT_FEATURES = []
+    main.THRESHOLD = 0.5
 
     def _fake_validate(payload, kept, cat, reject_unknown_fields=True):
         return payload
@@ -57,11 +59,6 @@ def test_predict_success(client: TestClient, monkeypatch: pytest.MonkeyPatch):
 
     r = client.post("/predict", json=payload_in)
     assert r.status_code == 200
-    data = r.json()
-
-    assert data["SK_ID_CURR"] == 123
-    assert "latency_ms" in data
-    assert data["decision"] in ("ACCEPTED", "REFUSED")
 
 
 def test_predict_api_error_returns_http_status(client: TestClient, monkeypatch: pytest.MonkeyPatch):

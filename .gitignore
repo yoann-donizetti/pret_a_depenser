@@ -33,3 +33,5 @@ app/assets/X_api.csv
 htmlcov/
 .pytest_cache/
 .coverage.*
+
+app/assets

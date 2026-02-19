@@ -1,35 +1,36 @@
 # tests/test_lifespan.py
 from __future__ import annotations
 
-from pathlib import Path
 import pytest
-from fastapi.testclient import TestClient
-
 import app.main as main
 
 
-def test_lifespan_loads_artifacts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    # --- mocks: aucune dépendance MLflow réelle
-    monkeypatch.setattr(main, "setup_mlflow", lambda *a, **k: None)
-    monkeypatch.setattr(main, "load_catboost_model", lambda *a, **k: object())
+@pytest.mark.anyio
+async def test_lifespan_loads_artifacts(monkeypatch: pytest.MonkeyPatch):
+    fake_model = object()
+    fake_kept = ["SK_ID_CURR"]
+    fake_cat = []
+    fake_thr = 0.5
 
-    # download_run_artifacts doit retourner un dossier contenant les 3 fichiers attendus
-    art_dir = tmp_path / "api_artifacts"
-    art_dir.mkdir()
+    monkeypatch.setenv("BUNDLE_SOURCE", "hf")
+    monkeypatch.setenv("HF_REPO_ID", "donizetti-yoann/pret-a-depenser-scoring")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
 
-    (art_dir / "kept_features_top125_nocorr.txt").write_text("SK_ID_CURR\nEXT_SOURCE_1\n", encoding="utf-8")
-    (art_dir / "cat_features_top125_nocorr.txt").write_text("", encoding="utf-8")
-    (art_dir / "threshold_catboost_top125_nocorr.json").write_text('{"threshold": 0.5}', encoding="utf-8")
+    monkeypatch.setattr(
+        main,
+        "load_bundle_from_hf",
+        lambda *a, **k: (fake_model, fake_kept, fake_cat, fake_thr),
+    )
 
-    monkeypatch.setattr(main, "download_run_artifacts", lambda artifact_uri, cache_dir: art_dir)
-
-
+    main.MODEL = None
+    main.KEPT_FEATURES = None
+    main.CAT_FEATURES = None
+    main.THRESHOLD = None
 
     app = main.create_app(enable_lifespan=True)
 
-    # IMPORTANT: le lifespan ne s’exécute que dans le context manager
-    with TestClient(app) as client:
-        r = client.get("/health")
-        assert r.status_code == 200
-        assert r.json()["status"] == "ok"
-
+    async with app.router.lifespan_context(app):
+        assert main.MODEL is fake_model
+        assert main.KEPT_FEATURES == fake_kept
+        assert main.CAT_FEATURES == fake_cat
+        assert main.THRESHOLD == fake_thr

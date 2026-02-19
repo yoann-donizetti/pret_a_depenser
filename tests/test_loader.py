@@ -1,95 +1,80 @@
-# tests/test_loader.py
-
 from __future__ import annotations
 
 from pathlib import Path
-import os
-from types import SimpleNamespace
+import json
+import pytest
 
 import app.model.loader as loader
 
 
-def test_setup_mlflow_sets_tracking_uri_and_env(monkeypatch):
-    called = {"uri": None}
+def _write_minimal_artifacts(base: Path) -> dict:
+    base.mkdir(parents=True, exist_ok=True)
+    kept = base / "kept_features_top125_nocorr.txt"
+    cat = base / "cat_features_top125_nocorr.txt"
+    thr = base / "threshold_catboost_top125_nocorr.json"
 
-    fake_mlflow = SimpleNamespace(
-        set_tracking_uri=lambda uri: called.__setitem__("uri", uri)
-    )
+    kept.write_text("SK_ID_CURR\nEXT_SOURCE_1\n", encoding="utf-8")
+    cat.write_text("", encoding="utf-8")
+    thr.write_text(json.dumps({"threshold": 0.42}), encoding="utf-8")
 
-    monkeypatch.setattr(loader, "_get_mlflow", lambda: fake_mlflow)
-
-    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
-    monkeypatch.delenv("MLFLOW_ARTIFACT_URI", raising=False)
-
-    loader.setup_mlflow("sqlite:///mlflow.db")
-
-    assert called["uri"] == "sqlite:///mlflow.db"
-    assert os.environ["MLFLOW_TRACKING_URI"] == "sqlite:///mlflow.db"
-    assert "MLFLOW_ARTIFACT_URI" not in os.environ
+    return {"kept": kept, "cat": cat, "thr": thr}
 
 
-def test_setup_mlflow_with_artifact_root_sets_env_and_creates_dir(monkeypatch, tmp_path: Path):
-    called = {"uri": None}
+def test_load_bundle_from_local_loads_all_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    model_dir = tmp_path / "model"
+    art_dir = tmp_path / "api_artifacts"
+    model_dir.mkdir()
 
-    fake_mlflow = SimpleNamespace(
-        set_tracking_uri=lambda uri: called.__setitem__("uri", uri)
-    )
+    files = _write_minimal_artifacts(art_dir)
+    model_file = model_dir / "model.cb"
+    model_file.write_bytes(b"FAKE_CATBOOST_MODEL")
 
-    monkeypatch.setattr(loader, "_get_mlflow", lambda: fake_mlflow)
-
-    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
-    monkeypatch.delenv("MLFLOW_ARTIFACT_URI", raising=False)
-
-    artifact_root = tmp_path / "mlflow_artifacts"
-    assert not artifact_root.exists()
-
-    loader.setup_mlflow("http://mlflow:5000", artifact_root=artifact_root)
-
-    assert called["uri"] == "http://mlflow:5000"
-    assert os.environ["MLFLOW_TRACKING_URI"] == "http://mlflow:5000"
-    assert artifact_root.exists()
-    assert artifact_root.is_dir()
-    assert os.environ["MLFLOW_ARTIFACT_URI"] == artifact_root.resolve().as_uri()
-
-
-def test_download_run_artifacts_creates_dst_and_returns_path(monkeypatch, tmp_path: Path):
-    returned = tmp_path / "downloaded" / "api_artifacts"
-
-    def fake_download_artifacts(artifact_uri: str, dst_path: str):
-        assert artifact_uri == "runs:/123/api_artifacts"
-        assert Path(dst_path).exists()  # dst_dir créé avant appel
-        return str(returned)
-
-    fake_mlflow = SimpleNamespace(
-        artifacts=SimpleNamespace(download_artifacts=fake_download_artifacts)
-    )
-
-    monkeypatch.setattr(loader, "_get_mlflow", lambda: fake_mlflow)
-
-    dst_dir = tmp_path / "cache"
-    assert not dst_dir.exists()
-
-    out = loader.download_run_artifacts("runs:/123/api_artifacts", dst_dir)
-
-    assert dst_dir.exists()
-    assert out == returned
-
-
-def test_load_catboost_model_calls_mlflow_catboost_load_model(monkeypatch):
-    called = {"uri": None}
     fake_model = object()
+    monkeypatch.setattr(loader, "_load_catboost_from_file", lambda *_a, **_k: fake_model)
 
-    def fake_load_model(uri: str):
-        called["uri"] = uri
-        return fake_model
-
-    fake_mlflow = SimpleNamespace(
-        catboost=SimpleNamespace(load_model=fake_load_model)
+    model, kept, cat, thr = loader.load_bundle_from_local(
+        model_path=model_file,
+        kept_path=files["kept"],
+        cat_path=files["cat"],
+        threshold_path=files["thr"],
     )
 
-    monkeypatch.setattr(loader, "_get_mlflow", lambda: fake_mlflow)
-
-    model = loader.load_catboost_model("models:/home_credit_catboost/Production")
-
-    assert called["uri"] == "models:/home_credit_catboost/Production"
     assert model is fake_model
+    assert kept == ["SK_ID_CURR", "EXT_SOURCE_1"]
+    assert cat == []
+    assert thr == 0.42
+
+
+def test_load_bundle_from_hf_downloads_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    model_dir = repo_root / "model"
+    art_dir = repo_root / "api_artifacts"
+    model_dir.mkdir(parents=True)
+
+    files = _write_minimal_artifacts(art_dir)
+    model_path = model_dir / "model.cb"
+    model_path.write_bytes(b"FAKE")
+
+    fake_model = object()
+    monkeypatch.setattr(loader, "_load_catboost_from_file", lambda *_a, **_k: fake_model)
+
+    def fake_hf_hub_download(repo_id: str, filename: str, token=None, **kwargs):
+        local = repo_root / filename
+        assert local.exists(), f"Fichier demandé inexistant: {local}"
+        return str(local)
+
+    monkeypatch.setattr(loader, "hf_hub_download", fake_hf_hub_download)
+
+    model, kept, cat, thr = loader.load_bundle_from_hf(
+        repo_id="donizetti-yoann/pret-a-depenser-scoring",
+        model_path="model/model.cb",
+        kept_path="api_artifacts/kept_features_top125_nocorr.txt",
+        cat_path="api_artifacts/cat_features_top125_nocorr.txt",
+        threshold_path="api_artifacts/threshold_catboost_top125_nocorr.json",
+        token="fake",
+    )
+
+    assert model is fake_model
+    assert kept == ["SK_ID_CURR", "EXT_SOURCE_1"]
+    assert cat == []
+    assert thr == 0.42

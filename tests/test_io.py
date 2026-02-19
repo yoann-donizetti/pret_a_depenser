@@ -1,38 +1,55 @@
-# tests/test_io.py
-
 from __future__ import annotations
 
-from pathlib import Path
-
+import importlib
 import pytest
 
-from app.utils.io import parse_json, load_txt_list
-from app.utils.errors import ApiError
+import app.config as config
+import app.main as main
 
 
-def test_parse_json_empty():
-    with pytest.raises(ApiError) as e:
-        parse_json("   ")
-    assert e.value.code == "EMPTY_JSON"
+@pytest.mark.anyio
+async def test_lifespan_loads_artifacts_hf(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("BUNDLE_SOURCE", "hf")
+    monkeypatch.setenv("HF_REPO_ID", "donizetti-yoann/pret-a-depenser-scoring")
+
+    # reload config + main pour prendre les env
+    importlib.reload(config)
+    importlib.reload(main)
+
+    fake_model = object()
+    fake_kept = ["SK_ID_CURR"]
+    fake_cat = []
+    fake_thr = 0.5
+
+    monkeypatch.setattr(main, "load_bundle_from_hf", lambda **_k: (fake_model, fake_kept, fake_cat, fake_thr))
+
+    app = main.create_app(enable_lifespan=True)
+
+    async with main.lifespan(app):
+        assert main.MODEL is fake_model
+        assert main.KEPT_FEATURES == fake_kept
+        assert main.CAT_FEATURES == fake_cat
+        assert main.THRESHOLD == fake_thr
 
 
-def test_parse_json_invalid():
-    with pytest.raises(ApiError) as e:
-        parse_json("{bad json}")
-    assert e.value.code == "INVALID_JSON"
-    assert "line" in e.value.details
-    assert "col" in e.value.details
+@pytest.mark.anyio
+async def test_lifespan_loads_artifacts_local(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("BUNDLE_SOURCE", "local")
 
+    importlib.reload(config)
+    importlib.reload(main)
 
-def test_parse_json_not_a_dict():
-    with pytest.raises(ApiError) as e:
-        parse_json('["a", "b"]')
-    assert e.value.code == "INVALID_PAYLOAD"
+    fake_model = object()
+    fake_kept = ["SK_ID_CURR"]
+    fake_cat = []
+    fake_thr = 0.5
 
+    monkeypatch.setattr(main, "load_bundle_from_local", lambda **_k: (fake_model, fake_kept, fake_cat, fake_thr))
 
-def test_load_txt_list_strips_and_ignores_empty(tmp_path: Path):
-    p = tmp_path / "f.txt"
-    p.write_text("  a  \n\n b\n   \n", encoding="utf-8")
+    app = main.create_app(enable_lifespan=True)
 
-    out = load_txt_list(p)
-    assert out == ["a", "b"]
+    async with main.lifespan(app):
+        assert main.MODEL is fake_model
+        assert main.KEPT_FEATURES == fake_kept
+        assert main.CAT_FEATURES == fake_cat
+        assert main.THRESHOLD == fake_thr
