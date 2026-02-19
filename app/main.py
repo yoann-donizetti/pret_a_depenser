@@ -15,6 +15,7 @@ from app.model.predict import predict_score
 from app.utils.validation import validate_payload
 from app.utils.errors import ApiError
 from app.schemas import PredictRequest,HealthResponse
+from fastapi.responses import RedirectResponse
 
 
 # Charge .env uniquement en dev/local (pas en prod Docker/CI)
@@ -78,7 +79,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.get("/")
     def root():
-        return {"message": "API running. Go to /docs"}
+        
     
 
     @app.get("/health", response_model=HealthResponse)
