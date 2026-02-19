@@ -1,3 +1,16 @@
+---
+title: Pret a Dépenser API
+emoji: 🏦
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+# Prêt à Dépenser — Credit Scoring (MLOps)
+...
+
 # Prêt à Dépenser — Credit Scoring (MLOps)
 
 Ce projet consiste à développer un modèle de **credit scoring** permettant d’estimer la probabilité de défaut d’un client.
@@ -177,7 +190,7 @@ pret-a-depenser/
 ├── .env                          # Variables d'environnement (local uniquement)
 ├── .gitignore                    # Exclusion fichiers lourds / secrets
 ├── pytest.ini                    # Config pytest
-├── requirements.txt              # Dépendances Python
+├── pyproject.toml            # Dépendances Python
 └── README.md                     # Documentation principale
 ```
 
