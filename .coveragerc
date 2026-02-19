@@ -1,5 +1,4 @@
 [run]
 [coverage:run]
 omit =
-    */__main__.py
     app/config.py

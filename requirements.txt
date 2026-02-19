@@ -18,3 +18,4 @@ uvicorn[standard]
 fastapi
 huggingface_hub>=0.20,<1.0
 python-dotenv
+pytest-cov
