@@ -2,9 +2,9 @@ name: CD
 
 on:
   workflow_run:
-    workflows: ["CI"]          # <-- DOIT matcher exactement le name: de ton CI
+    workflows: ["CI"]
     types: [completed]
-    branches: ["main"]         # déclenché uniquement pour main
+    branches: ["main"]
 
 jobs:
   deploy_hf_space:
@@ -19,6 +19,11 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
+      - name: Install rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
+
       - name: Configure git
         run: |
           git config user.name "github-actions"
@@ -30,22 +35,22 @@ jobs:
           HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          set -e
+          set -euo pipefail
+
           rm -rf /tmp/hf-space
           git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_REPO}" /tmp/hf-space
 
-          rsync -av --delete \
-            --exclude ".git" \
-            --exclude ".venv" \
-            --exclude "__pycache__" \
-            --exclude ".pytest_cache" \
-            --exclude ".mypy_cache" \
-            --exclude ".ruff_cache" \
-            --exclude ".DS_Store" \
-            --exclude "data" \
-            --exclude "outputs" \
-            --exclude "artifacts" \
-            ./ /tmp/hf-space/
+          # On wipe le contenu du Space (sauf .git)
+          find /tmp/hf-space -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+
+          # Copie API
+          rsync -av app/ /tmp/hf-space/app/
+
+          # Copie fichiers nécessaires pour build/install
+          rsync -av Dockerfile requirements.txt pyproject.toml README.md /tmp/hf-space/ || true
+
+          # Optionnel
+          if [ -f "pytest.ini" ]; then rsync -av pytest.ini /tmp/hf-space/; fi
 
           cd /tmp/hf-space
           git add -A
