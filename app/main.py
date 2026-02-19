@@ -15,6 +15,7 @@ from app.model.predict import predict_score
 from app.utils.validation import validate_payload
 from app.utils.errors import ApiError
 from app.schemas import PredictRequest,HealthResponse
+from fastapi.responses import RedirectResponse
 
 
 # Charge .env uniquement en dev/local (pas en prod Docker/CI)
@@ -78,7 +79,9 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.get("/")
     def root():
-        return {"message": "API running. Go to /docs"}
+        return RedirectResponse(url="/docs")        
+    
+        
     
 
     @app.get("/health", response_model=HealthResponse)
@@ -90,7 +93,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     async def predict(payload: PredictRequest) -> JSONResponse:
         t0 = time.time()
         try:
-            payload_dict = payload.model_dump()
+            payload_dict = payload.model_dump(exclude_none=True)
 
             if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
                 return JSONResponse(
