@@ -1,7 +1,6 @@
 # Données
-data/raw/
-data/clean/
-data/processed/
+data/
+
 
 # MLflow
 mlruns/
@@ -25,3 +24,11 @@ catboost_info
 mlflow.db
 
 artifacts
+
+
+.coverage
+htmlcov/
+.pytest_cache/
+.coverage.*
+
+app/assets
