@@ -76,7 +76,9 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     )
 
 
-
+    @app.get("/")
+    def root():
+        return {"message": "API running. Go to /docs"}
     
 
     @app.get("/health", response_model=HealthResponse)

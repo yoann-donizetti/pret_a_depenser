@@ -32,3 +32,6 @@ htmlcov/
 .coverage.*
 
 app/assets
+
+build/
+dist/
