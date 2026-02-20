@@ -198,6 +198,10 @@ pret-a-depenser/
 ├── .gitignore                    # Exclusion fichiers lourds / secrets
 ├── pytest.ini                    # Config pytest
 ├── pyproject.toml            # Dépendances Python
+├── docker-compose.yml #Base PostgreQSL Locale (monitoring)
+├── monitoring/ #Dashboard Streamlit (drift  ops)
+├── scripts/                        
+│   ├── simulate_requests.py
 └── README.md                     # Documentation principale
 ```
 
@@ -274,7 +278,7 @@ Variables :
 - LOCAL_KEPT_PATH
 - LOCAL_CAT_PATH
 - LOCAL_THRESHOLD_PATH
-
+- DATABASE_URL (connexion PostgreSQL pour logging)
 ### Mode Hugging Face
 Les fichiers sont téléchargés depuis un repo Hugging Face.
 Variables :
@@ -344,10 +348,35 @@ Les inputs sont validés via :
 - champs inconnus (protection contre payload invalide / injection)
 
 
+
+
+### Monitoring opérationnel
+Suivi :
+- taux d’erreur HTTP
+- latence médiane
+- distribution des codes de réponse
+- p95/p99 possible
+
+### Détection de Data Drift
+Un dashboard Streamlit permet de :
+- comparer les distributions production vs référence
+- calculer le PSI (Population Stability Index)
+- détecter les dérives de variables
+
+Seuils PSI :
+- < 0.1 : stable
+- 0.1 – 0.25 : à surveiller
+- 0.25 : drift significatif
+
+```bash
+streamlit run monitoring/streamlit_app.py
+```
+
 ## Résultat final
 Ce projet fournit :
 - un modèle de scoring optimisé selon un coût métier
 - un tracking complet des expérimentations via MLflow
 - une API FastAPI testée (pytest)
-- une architecture prête pour le déploiement Docker / Hugging Face
+- un système de monitoring production (latence, erreurs, data drift)
+- une architecture MLOps complète : tracking, packaging, déploiement, monitoring
 

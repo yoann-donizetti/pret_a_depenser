@@ -20,6 +20,7 @@ dev = [
   "pytest>=8.0,<10.0",
   "pytest-cov>=4.0,<8.0",
   "httpx>=0.24,<1.0",
+  "psycopg[binary]>=3.1,<4.0",
 ]
 
 notebooks = [
@@ -32,4 +33,10 @@ notebooks = [
   "xgboost>=2.0,<3.0",
   "lightgbm>=4.0,<5.0",
   "torch>=2.1,<3.0",
+]
+
+monitoring = [
+  "streamlit>=1.30,<2.0",
+  "matplotlib>=3.7,<4.0",
+  "pandas>=2.0,<3.0",
 ]
