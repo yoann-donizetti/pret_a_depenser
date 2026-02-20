@@ -2,24 +2,32 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Any, Dict, Optional
 
 import psycopg
-from psycopg.types.json import Jsonb
 
 _CONN: Optional[psycopg.Connection] = None
 
 
-def _get_conn() -> psycopg.Connection:
+def _get_conn() -> Optional[psycopg.Connection]:
     global _CONN
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        return None
+
     if _CONN is None or _CONN.closed:
-        db_url = os.environ["DATABASE_URL"]  # doit exister
         _CONN = psycopg.connect(db_url, autocommit=True)
+
     return _CONN
 
 
 def init_db() -> None:
     conn = _get_conn()
+    if conn is None:
+        return  # pas de DB => pas de init
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS prod_requests (
@@ -30,9 +38,7 @@ def init_db() -> None:
             latency_ms DOUBLE PRECISION,
             sk_id_curr TEXT,
             inputs JSONB,
-            outputs JSONB,
-            error TEXT,
-            message TEXT
+            outputs JSONB
         );
         """
     )
@@ -40,31 +46,23 @@ def init_db() -> None:
 
 def log_event_db(event: Dict[str, Any]) -> None:
     conn = _get_conn()
+    if conn is None:
+        return  # pas de DB => pas de log
 
-    status_code = int(event.get("status_code", 0))
+    inputs_json = json.dumps(event.get("inputs")) if event.get("inputs") is not None else None
+    outputs_json = json.dumps(event.get("outputs")) if event.get("outputs") is not None else None
 
-    inputs = event.get("inputs")
-    outputs = event.get("outputs")
-
-    try:
-        conn.execute(
-            """
-            INSERT INTO prod_requests (endpoint, status_code, latency_ms, sk_id_curr, inputs, outputs, error, message)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                event.get("endpoint"),
-                status_code,
-                event.get("latency_ms"),
-                None if event.get("sk_id_curr") is None else str(event.get("sk_id_curr")),
-                Jsonb(inputs) if inputs is not None else None,
-                Jsonb(outputs) if outputs is not None else None,
-                event.get("error"),
-                event.get("message"),
-            ),
-        )
-    except Exception as e:
-        # DEBUG (temporaire)
-        print(f"[prod_logging_db] INSERT FAILED: {e}")
-        print(f"[prod_logging_db] event keys: {list(event.keys())}")
-        raise
+    conn.execute(
+        """
+        INSERT INTO prod_requests (endpoint, status_code, latency_ms, sk_id_curr, inputs, outputs)
+        VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb)
+        """,
+        (
+            event.get("endpoint"),
+            event.get("status_code"),
+            event.get("latency_ms"),
+            None if event.get("sk_id_curr") is None else str(event.get("sk_id_curr")),
+            inputs_json,
+            outputs_json,
+        ),
+    )

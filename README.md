@@ -348,12 +348,7 @@ Les inputs sont validés via :
 - champs inconnus (protection contre payload invalide / injection)
 
 
-## Résultat final
-Ce projet fournit :
-- un modèle de scoring optimisé selon un coût métier
-- un tracking complet des expérimentations via MLflow
-- une API FastAPI testée (pytest)
-- une architecture prête pour le déploiement Docker / Hugging Face
+
 
 ### Monitoring opérationnel
 Suivi :

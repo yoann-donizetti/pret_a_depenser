@@ -1,4 +1,5 @@
 # app/main.py
+
 from __future__ import annotations
 
 import os
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from app import config
 from app.model.loader import load_bundle_from_local, load_bundle_from_hf
 from app.model.predict import predict_score
 from app.schemas import PredictRequest, HealthResponse
@@ -22,6 +24,7 @@ from app.utils.validation import validate_payload
 if (os.getenv("ENV") or "dev").lower() != "prod":
     load_dotenv(override=False)
 
+
 MODEL = None
 KEPT_FEATURES = None
 CAT_FEATURES = None
@@ -29,10 +32,15 @@ THRESHOLD = None
 
 
 def _bundle_source() -> str:
-    src = (os.getenv("BUNDLE_SOURCE") or "auto").strip().lower()
+    """
+    local | hf | auto
+    - si config.BUNDLE_SOURCE est local/hf => on respecte
+    - sinon auto: hf si HF_REPO_ID est défini, sinon local
+    """
+    src = (config.BUNDLE_SOURCE or "auto").strip().lower()
     if src in ("local", "hf"):
         return src
-    return "hf" if os.getenv("HF_REPO_ID") else "local"
+    return "hf" if config.HF_REPO_ID else "local"
 
 
 def _safe_log(event: dict) -> None:
@@ -50,28 +58,23 @@ async def lifespan(_app: FastAPI):
     source = _bundle_source()
 
     if source == "hf":
-        repo_id = os.getenv("HF_REPO_ID")
-        if not repo_id:
+        if not config.HF_REPO_ID:
             raise RuntimeError("HF_REPO_ID manquant (BUNDLE_SOURCE=hf)")
 
-        token = os.getenv("HF_TOKEN")
         MODEL, KEPT_FEATURES, CAT_FEATURES, THRESHOLD = load_bundle_from_hf(
-            repo_id=repo_id,
-            model_path=os.getenv("HF_MODEL_PATH", "model/model.cb"),
-            kept_path=os.getenv("HF_KEPT_PATH", "api_artifacts/kept_features_top125_nocorr.txt"),
-            cat_path=os.getenv("HF_CAT_PATH", "api_artifacts/cat_features_top125_nocorr.txt"),
-            threshold_path=os.getenv("HF_THRESHOLD_PATH", "api_artifacts/threshold_catboost_top125_nocorr.json"),
-            token=token,
+            repo_id=config.HF_REPO_ID,
+            model_path=config.HF_MODEL_PATH,
+            kept_path=config.HF_KEPT_PATH,
+            cat_path=config.HF_CAT_PATH,
+            threshold_path=config.HF_THRESHOLD_PATH,
+            token=config.HF_TOKEN,
         )
     else:
         MODEL, KEPT_FEATURES, CAT_FEATURES, THRESHOLD = load_bundle_from_local(
-            model_path=os.getenv("LOCAL_MODEL_PATH", "app/assets/model/model.cb"),
-            kept_path=os.getenv("LOCAL_KEPT_PATH", "app/assets/api_artifacts/kept_features_top125_nocorr.txt"),
-            cat_path=os.getenv("LOCAL_CAT_PATH", "app/assets/api_artifacts/cat_features_top125_nocorr.txt"),
-            threshold_path=os.getenv(
-                "LOCAL_THRESHOLD_PATH",
-                "app/assets/api_artifacts/threshold_catboost_top125_nocorr.json",
-            ),
+            model_path=config.LOCAL_MODEL_PATH,
+            kept_path=config.LOCAL_KEPT_PATH,
+            cat_path=config.LOCAL_CAT_PATH,
+            threshold_path=config.LOCAL_THRESHOLD_PATH,
         )
 
     # DB-only : initialise la table (idempotent)
@@ -123,6 +126,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "message": "API not ready: model/artifacts not loaded yet.",
                     "latency_ms": round((time.time() - t0) * 1000, 2),
                 }
+
                 _safe_log(
                     {
                         "endpoint": "/predict",
@@ -134,11 +138,15 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "message": out["message"],
                     }
                 )
+
                 return JSONResponse(status_code=503, content=out)
 
-            # validation stricte: rejette champs inconnus
+            # validation stricte : rejette champs inconnus + vérifie types/bornes
             payload_valid = validate_payload(
-                payload_dict, KEPT_FEATURES, CAT_FEATURES, reject_unknown_fields=True
+                payload_dict,
+                KEPT_FEATURES,
+                CAT_FEATURES,
+                reject_unknown_fields=True,
             )
 
             out = predict_score(MODEL, payload_valid, KEPT_FEATURES, CAT_FEATURES, threshold=THRESHOLD)
@@ -150,7 +158,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "status_code": 200,
                     "sk_id_curr": sk_id,
                     "latency_ms": out["latency_ms"],
-                    "inputs": payload_valid,
+                    "inputs": payload_valid,  # payload "nettoyé" (utile pour drift)
                     "outputs": {
                         "proba_default": out.get("proba_default"),
                         "score": out.get("score"),
@@ -175,7 +183,8 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "inputs": payload_dict,
                     "error": out.get("error"),
                     "message": out.get("message"),
-                    "outputs": out.get("details"),  # on peut stocker details dans outputs jsonb
+                    # on peut stocker details dans outputs (jsonb)
+                    "outputs": out.get("details"),
                 }
             )
 
