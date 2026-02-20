@@ -5,23 +5,22 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.model.loader import load_bundle_from_local, load_bundle_from_hf
 from app.model.predict import predict_score
-from app.utils.validation import validate_payload
+from app.schemas import PredictRequest, HealthResponse
 from app.utils.errors import ApiError
-from app.schemas import PredictRequest,HealthResponse
 from app.utils.prod_logging import log_event
-from fastapi.responses import RedirectResponse
+from app.utils.prod_logging_db import init_db
+from app.utils.validation import validate_payload
 
 
 # Charge .env uniquement en dev/local (pas en prod Docker/CI)
 if (os.getenv("ENV") or "dev").lower() != "prod":
     load_dotenv(override=False)
-
 
 MODEL = None
 KEPT_FEATURES = None
@@ -33,8 +32,15 @@ def _bundle_source() -> str:
     src = (os.getenv("BUNDLE_SOURCE") or "auto").strip().lower()
     if src in ("local", "hf"):
         return src
-    # auto
     return "hf" if os.getenv("HF_REPO_ID") else "local"
+
+
+def _safe_log(event: dict) -> None:
+    """Le logging ne doit jamais casser l'API."""
+    try:
+        log_event(event)
+    except Exception:
+        pass
 
 
 @asynccontextmanager
@@ -62,8 +68,14 @@ async def lifespan(_app: FastAPI):
             model_path=os.getenv("LOCAL_MODEL_PATH", "app/assets/model/model.cb"),
             kept_path=os.getenv("LOCAL_KEPT_PATH", "app/assets/api_artifacts/kept_features_top125_nocorr.txt"),
             cat_path=os.getenv("LOCAL_CAT_PATH", "app/assets/api_artifacts/cat_features_top125_nocorr.txt"),
-            threshold_path=os.getenv("LOCAL_THRESHOLD_PATH", "app/assets/api_artifacts/threshold_catboost_top125_nocorr.json"),
+            threshold_path=os.getenv(
+                "LOCAL_THRESHOLD_PATH",
+                "app/assets/api_artifacts/threshold_catboost_top125_nocorr.json",
+            ),
         )
+
+    # DB-only : initialise la table (idempotent)
+    init_db()
 
     yield
 
@@ -76,26 +88,25 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
         lifespan=lifespan if enable_lifespan else None,
     )
 
-
     @app.get("/")
     def root():
-        return RedirectResponse(url="/docs")        
-    
-        
-    
+        return RedirectResponse(url="/docs")
 
     @app.get("/health", response_model=HealthResponse)
     def _health() -> HealthResponse:
         t0 = time.time()
-        ok = MODEL is not None and KEPT_FEATURES is not None and CAT_FEATURES is not None and THRESHOLD is not None
-        status = "ok" if ok else "not_ready"
+        ready = MODEL is not None and KEPT_FEATURES is not None and CAT_FEATURES is not None and THRESHOLD is not None
+        status = "ok" if ready else "not_ready"
+        latency_ms = round((time.time() - t0) * 1000, 2)
 
-        log_event({
-            "endpoint": "/health",
-            "status_code": 200,
-            "ready": status,
-            "latency_ms": round((time.time() - t0) * 1000, 2),
-        })
+        _safe_log(
+            {
+                "endpoint": "/health",
+                "status_code": 200,
+                "latency_ms": latency_ms,
+                "outputs": {"status": status},
+            }
+        )
 
         return HealthResponse(status=status)
 
@@ -103,8 +114,6 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     async def _predict(payload: PredictRequest) -> JSONResponse:
         t0 = time.time()
         payload_dict = payload.model_dump(exclude_unset=True)
-
-        # (Optionnel mais pratique) pour relier logs et réponses
         sk_id = payload_dict.get("SK_ID_CURR")
 
         try:
@@ -114,20 +123,20 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "message": "API not ready: model/artifacts not loaded yet.",
                     "latency_ms": round((time.time() - t0) * 1000, 2),
                 }
-
-                # LOG
-                log_event({
-                    "endpoint": "/predict",
-                    "status_code": 503,
-                    "sk_id_curr": sk_id,
-                    "latency_ms": out["latency_ms"],
-                    "inputs": payload_dict,
-                    "error": out["error"],
-                    "message": out["message"],
-                })
-
+                _safe_log(
+                    {
+                        "endpoint": "/predict",
+                        "status_code": 503,
+                        "sk_id_curr": sk_id,
+                        "latency_ms": out["latency_ms"],
+                        "inputs": payload_dict,
+                        "error": out["error"],
+                        "message": out["message"],
+                    }
+                )
                 return JSONResponse(status_code=503, content=out)
 
+            # validation stricte: rejette champs inconnus
             payload_valid = validate_payload(
                 payload_dict, KEPT_FEATURES, CAT_FEATURES, reject_unknown_fields=True
             )
@@ -135,20 +144,21 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
             out = predict_score(MODEL, payload_valid, KEPT_FEATURES, CAT_FEATURES, threshold=THRESHOLD)
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
 
-            # LOG success
-            log_event({
-                "endpoint": "/predict",
-                "status_code": 200,
-                "sk_id_curr": sk_id,
-                "latency_ms": out["latency_ms"],
-                "inputs": payload_valid,  # payload "nettoyé" (meilleur pour drift)
-                "outputs": {
-                    "proba_default": out.get("proba_default"),
-                    "score": out.get("score"),
-                    "decision": out.get("decision"),
-                    "threshold": out.get("threshold"),
-                },
-            })
+            _safe_log(
+                {
+                    "endpoint": "/predict",
+                    "status_code": 200,
+                    "sk_id_curr": sk_id,
+                    "latency_ms": out["latency_ms"],
+                    "inputs": payload_valid,
+                    "outputs": {
+                        "proba_default": out.get("proba_default"),
+                        "score": out.get("score"),
+                        "decision": out.get("decision"),
+                        "threshold": out.get("threshold"),
+                    },
+                }
+            )
 
             return JSONResponse(status_code=200, content=out)
 
@@ -156,17 +166,18 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
             out = e.to_dict()
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
 
-            # LOG ApiError
-            log_event({
-                "endpoint": "/predict",
-                "status_code": e.http_status,
-                "sk_id_curr": sk_id,
-                "latency_ms": out["latency_ms"],
-                "inputs": payload_dict,
-                "error": out.get("error"),
-                "message": out.get("message"),
-                "details": out.get("details"),
-            })
+            _safe_log(
+                {
+                    "endpoint": "/predict",
+                    "status_code": e.http_status,
+                    "sk_id_curr": sk_id,
+                    "latency_ms": out["latency_ms"],
+                    "inputs": payload_dict,
+                    "error": out.get("error"),
+                    "message": out.get("message"),
+                    "outputs": out.get("details"),  # on peut stocker details dans outputs jsonb
+                }
+            )
 
             return JSONResponse(status_code=e.http_status, content=out)
 
@@ -177,16 +188,17 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 "latency_ms": round((time.time() - t0) * 1000, 2),
             }
 
-            # LOG 500
-            log_event({
-                "endpoint": "/predict",
-                "status_code": 500,
-                "sk_id_curr": sk_id,
-                "latency_ms": out["latency_ms"],
-                "inputs": payload_dict,
-                "error": out["error"],
-                "message": out["message"],
-            })
+            _safe_log(
+                {
+                    "endpoint": "/predict",
+                    "status_code": 500,
+                    "sk_id_curr": sk_id,
+                    "latency_ms": out["latency_ms"],
+                    "inputs": payload_dict,
+                    "error": out["error"],
+                    "message": out["message"],
+                }
+            )
 
             return JSONResponse(status_code=500, content=out)
 

@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    container_name: pad-postgres
+    environment:
+      POSTGRES_USER: pad
+      POSTGRES_PASSWORD: pad
+      POSTGRES_DB: pad_monitoring
+    ports:
+      - "5433:5432"
+    volumes:
+      - pad_pgdata:/var/lib/postgresql/data
+
+volumes:
+  pad_pgdata:

@@ -1,63 +1,87 @@
 from __future__ import annotations
-
-import json
+from dotenv import load_dotenv
+load_dotenv()
+import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+import psycopg
 import streamlit as st
 import plotly.express as px
 
-# -----------------------
-# Utils
-# -----------------------
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows = []
-    if not path.exists():
-        return rows
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rows.append(json.loads(line))
-    return rows
 
-def build_prod_dataframe(events: List[Dict[str, Any]]) -> pd.DataFrame:
+# -----------------------
+# DB read
+# -----------------------
+
+def read_prod_from_db(
+    db_url: str,
+    limit: int | None = None,
+    endpoint: str = "/predict",
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    On extrait les inputs 'nettoyés' (inputs) si présents, sinon (request).
-    Selon ton log_event tu as: inputs et outputs (en success).
+    Retourne:
+    - prod_X : DataFrame des inputs (colonnes = features)
+    - prod_meta : DataFrame des métadonnées (ts, status_code, latency_ms, etc.)
     """
-    feats = []
-    meta = []
-    for e in events:
-        inp = e.get("inputs") or e.get("request") or {}
-        feats.append(inp)
-        meta.append({
-            "ts": e.get("ts"),
-            "endpoint": e.get("endpoint"),
-            "status_code": e.get("status_code"),
-            "latency_ms": e.get("latency_ms"),
-            "error": e.get("error"),
-            "message": e.get("message"),
+    q = """
+    SELECT
+      ts,
+      endpoint,
+      status_code,
+      latency_ms,
+      sk_id_curr,
+      inputs,
+      outputs,
+      error
+    FROM prod_requests
+    WHERE endpoint = %s
+    ORDER BY id DESC
+    """
+    params = [endpoint]
+    if limit is not None:
+        q += " LIMIT %s"
+        params.append(limit)
+
+    with psycopg.connect(db_url) as conn:
+        rows = conn.execute(q, params).fetchall()
+
+    # rows = list of tuples in same order as SELECT
+    meta_rows: List[Dict[str, Any]] = []
+    inputs_rows: List[Dict[str, Any]] = []
+
+    for (ts, endpoint, status_code, latency_ms, sk_id_curr, inputs, outputs, error) in rows:
+        meta_rows.append({
+            "ts": ts,
+            "endpoint": endpoint,
+            "status_code": status_code,
+            "latency_ms": latency_ms,
+            "sk_id_curr": sk_id_curr,
+            "error": error,
         })
+        inputs_rows.append(inputs or {})  # inputs est déjà un dict python (jsonb)
 
-    X = pd.DataFrame(feats)
-    M = pd.DataFrame(meta)
-    return X, M
+    prod_meta = pd.DataFrame(meta_rows)
+    prod_X = pd.DataFrame(inputs_rows)
+
+    # On remet l'ordre chronologique (optionnel mais souvent plus clair)
+    prod_meta = prod_meta.iloc[::-1].reset_index(drop=True)
+    prod_X = prod_X.iloc[::-1].reset_index(drop=True)
+
+    return prod_X, prod_meta
+
+
+# -----------------------
+# PSI utils (inchangés)
+# -----------------------
 
 def psi(ref: pd.Series, prod: pd.Series, bins: int = 10) -> float:
-    """
-    PSI pour variables numériques.
-    - On calcule les bins sur ref (quantiles), puis on compare les proportions.
-    """
     ref = ref.dropna()
     prod = prod.dropna()
     if len(ref) < 50 or len(prod) < 50:
         return np.nan
-
-    # Si variable quasi constante
     if ref.nunique() < 2 or prod.nunique() < 2:
         return 0.0
 
@@ -74,7 +98,6 @@ def psi(ref: pd.Series, prod: pd.Series, bins: int = 10) -> float:
         ref_dist = ref_bins.value_counts(normalize=True).sort_index()
         prod_dist = prod_bins.value_counts(normalize=True).sort_index()
 
-        # align
         prod_dist = prod_dist.reindex(ref_dist.index).fillna(0)
 
         eps = 1e-6
@@ -85,6 +108,7 @@ def psi(ref: pd.Series, prod: pd.Series, bins: int = 10) -> float:
     except Exception:
         return np.nan
 
+
 def psi_categorical(ref: pd.Series, prod: pd.Series) -> float:
     ref = ref.fillna("__MISSING__").astype(str)
     prod = prod.fillna("__MISSING__").astype(str)
@@ -92,7 +116,6 @@ def psi_categorical(ref: pd.Series, prod: pd.Series) -> float:
     ref_dist = ref.value_counts(normalize=True)
     prod_dist = prod.value_counts(normalize=True)
 
-    # union catégories
     idx = ref_dist.index.union(prod_dist.index)
     ref_dist = ref_dist.reindex(idx).fillna(0)
     prod_dist = prod_dist.reindex(idx).fillna(0)
@@ -100,32 +123,30 @@ def psi_categorical(ref: pd.Series, prod: pd.Series) -> float:
     eps = 1e-6
     r = np.clip(ref_dist.values, eps, 1)
     p = np.clip(prod_dist.values, eps, 1)
+
     return float(np.sum((p - r) * np.log(p / r)))
 
-def is_categorical_feature(name: str, cat_features: set[str]) -> bool:
-    return name in cat_features
 
 # -----------------------
 # Streamlit UI
 # -----------------------
-st.set_page_config(page_title="Prêt à Dépenser — Monitoring", layout="wide")
 
+st.set_page_config(page_title="Prêt à Dépenser — Monitoring", layout="wide")
 st.title("Monitoring — API & Data Drift (PoC local)")
 
-base_dir = Path(__file__).resolve().parent
-default_ref = Path.cwd() / "data" / "processed" / "train_split_final.csv" 
-default_logs = Path.cwd() / "prod_logs" / "requests.jsonl"  # utile si tu lances depuis la racine
+default_ref = Path.cwd() / "data" / "processed" / "train_split_final.csv"
+default_db_url = os.getenv("DATABASE_URL", "postgresql://pad:pad@127.0.0.1:5432/pad_monitoring")
 
 with st.sidebar:
     st.header("Inputs")
     ref_path = st.text_input("Reference CSV", str(default_ref))
-    logs_path = st.text_input("Prod logs JSONL", str(default_logs))
+    db_url = st.text_input("DATABASE_URL", default_db_url)
+    endpoint = st.text_input("Endpoint", "/predict")
+    limit = st.number_input("Nb requêtes à analyser (0 = tout)", min_value=0, value=1000, step=100)
     bins = st.slider("PSI bins (numériques)", 5, 20, 10)
-    st.caption("Seuils PSI usuels: <0.1 OK | 0.1–0.25 à surveiller | >0.25 drift fort")
+    st.caption("Seuils PSI: <0.1 OK | 0.1–0.25 à surveiller | >0.25 drift fort")
 
 ref_path = Path(ref_path)
-logs_path = Path(logs_path)
-
 if not ref_path.exists():
     st.error(f"Reference introuvable: {ref_path}")
     st.stop()
@@ -133,19 +154,24 @@ if not ref_path.exists():
 ref_df = pd.read_csv(ref_path)
 st.success(f"Reference chargée: {ref_df.shape[0]} lignes × {ref_df.shape[1]} colonnes")
 
-events = read_jsonl(logs_path)
-if len(events) == 0:
-    st.warning(f"Aucun log trouvé (ou fichier absent): {logs_path}")
+limit_val = None if int(limit) == 0 else int(limit)
+
+try:
+    prod_X, prod_meta = read_prod_from_db(db_url=db_url, limit=limit_val, endpoint=endpoint)
+except Exception as e:
+    st.error(f"Erreur DB: {e}")
     st.stop()
 
-prod_X, prod_meta = build_prod_dataframe(events)
-st.success(f"Logs chargés: {len(events)} événements | prod inputs: {prod_X.shape[0]}×{prod_X.shape[1]}")
+if len(prod_meta) == 0:
+    st.warning("Aucune ligne trouvée en base (prod_requests).")
+    st.stop()
 
-# --- OPS metrics (latence & erreurs)
+st.success(f"DB chargée: {len(prod_meta)} requêtes | prod inputs: {prod_X.shape[0]}×{prod_X.shape[1]}")
+
+# --- OPS metrics
 st.subheader("1) Santé API (ops)")
-c1, c2, c3 = st.columns(3)
-status_counts = prod_meta["status_code"].value_counts(dropna=False)
 
+c1, c2, c3 = st.columns(3)
 with c1:
     st.metric("Nb requêtes", int(len(prod_meta)))
 with c2:
@@ -154,46 +180,44 @@ with c3:
     st.metric("Latence médiane (ms)", float(pd.to_numeric(prod_meta["latency_ms"], errors="coerce").median()))
 
 lat = pd.to_numeric(prod_meta["latency_ms"], errors="coerce")
-fig_lat = px.histogram(lat.dropna(), nbins=30, title="Distribution latence (ms)")
-st.plotly_chart(fig_lat, use_container_width=True)
+st.plotly_chart(px.histogram(lat.dropna(), nbins=30, title="Distribution latence (ms)"), use_container_width=True)
 
-fig_status = px.bar(status_counts.sort_index(), title="Codes HTTP")
-st.plotly_chart(fig_status, use_container_width=True)
+status_counts = prod_meta["status_code"].value_counts(dropna=False).sort_index()
+st.plotly_chart(px.bar(status_counts, title="Codes HTTP"), use_container_width=True)
 
 # --- Drift
 st.subheader("2) Data Drift (PSI)")
+
 common_cols = [c for c in ref_df.columns if c in prod_X.columns]
 missing_in_prod = [c for c in ref_df.columns if c not in prod_X.columns]
 
 if missing_in_prod:
     st.warning(f"{len(missing_in_prod)} features de référence absentes en prod (ex: {missing_in_prod[:5]})")
 
-# Optionnel: si tu as la liste des cat features quelque part, tu peux la charger.
-# Ici: on considère "cat_features" vide par défaut.
-cat_features = set()
-
 rows = []
 for col in common_cols:
     ref_s = ref_df[col]
     prod_s = prod_X[col]
-    if is_categorical_feature(col, cat_features) or ref_s.dtype == "object":
+
+    if ref_s.dtype == "object":
         v = psi_categorical(ref_s, prod_s)
         kind = "categorical"
     else:
         v = psi(ref_s, prod_s, bins=bins)
         kind = "numeric"
+
     rows.append({"feature": col, "psi": v, "type": kind})
 
 drift_df = pd.DataFrame(rows).sort_values("psi", ascending=False)
 st.dataframe(drift_df, use_container_width=True, hide_index=True)
 
-# Top features chart
 topk = drift_df.dropna().head(20)
-fig_top = px.bar(topk[::-1], x="psi", y="feature", orientation="h", title="Top 20 PSI (drift)")
-st.plotly_chart(fig_top, use_container_width=True)
+st.plotly_chart(px.bar(topk[::-1], x="psi", y="feature", orientation="h", title="Top 20 PSI (drift)"),
+                use_container_width=True)
 
-# Inspect 1 feature
+# --- Inspect feature
 st.subheader("3) Détail feature")
+
 feat = st.selectbox("Choisir une feature", common_cols)
 ref_s = ref_df[feat]
 prod_s = prod_X[feat]
@@ -206,7 +230,6 @@ with colB:
     st.write("Production")
     st.write(prod_s.describe(include="all"))
 
-# Plot
 if ref_s.dtype == "object":
     ref_counts = ref_s.fillna("__MISSING__").astype(str).value_counts().head(20)
     prod_counts = prod_s.fillna("__MISSING__").astype(str).value_counts().head(20)
@@ -214,7 +237,10 @@ if ref_s.dtype == "object":
     fig = px.bar(merged, x=feat, y=["ref", "prod"], barmode="group", title=f"Top catégories: {feat}")
 else:
     fig = px.histogram(
-        pd.DataFrame({"ref": pd.to_numeric(ref_s, errors="coerce"), "prod": pd.to_numeric(prod_s, errors="coerce")}),
+        pd.DataFrame({
+            "ref": pd.to_numeric(ref_s, errors="coerce"),
+            "prod": pd.to_numeric(prod_s, errors="coerce")
+        }),
         x=["ref", "prod"],
         nbins=30,
         barmode="overlay",

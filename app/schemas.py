@@ -12,7 +12,7 @@ _EXAMPLE_PATH = Path("examples/input_example.json")
 
 try:
     _EXAMPLE: Dict[str, Any] = json.loads(_EXAMPLE_PATH.read_text(encoding="utf-8"))
-    _EXAMPLE.pop("TARGET", None)  # on ne veut pas de target dans l'API
+    _EXAMPLE.pop("TARGET", None)
 except Exception:
     # Fallback si le fichier n'est pas dispo (ex: tests/CI)
     _EXAMPLE = {"SK_ID_CURR": 100001}
