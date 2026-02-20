@@ -10,6 +10,15 @@ from app.utils.io import load_txt_list, parse_json
 
 
 def _load_catboost_from_file(model_file: Path) -> CatBoostClassifier:
+    """
+    Charge un modèle de classifieur CatBoost à partir d'un fichier.
+
+    Args:
+        model_file (Path): Le chemin du fichier du modèle CatBoost enregistré.
+
+    Returns:
+        CatBoostClassifier: Le modèle de classifieur CatBoost chargé.
+    """
     model = CatBoostClassifier()
     model.load_model(str(model_file))
     return model
