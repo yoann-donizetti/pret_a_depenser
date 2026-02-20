@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+import app.model.loader as loader 
 
 
 class FakeModel:
@@ -16,14 +17,15 @@ class FakeModel:
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch):
     fake_model = FakeModel()
-
     fake_kept = ["SK_ID_CURR", "EXT_SOURCE_1"]
     fake_cat = []
     fake_thr = 0.5
 
     monkeypatch.setenv("BUNDLE_SOURCE", "local")
+
+
     monkeypatch.setattr(
-        main,
+        loader,
         "load_bundle_from_local",
         lambda **kwargs: (fake_model, fake_kept, fake_cat, fake_thr),
     )
