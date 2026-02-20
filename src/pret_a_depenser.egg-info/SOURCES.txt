@@ -21,6 +21,7 @@ src/tracking/tracking_final_log.py
 src/tracking/tracking_treshold_log.py
 src/utils/eda.py
 tests/test_api.py
+tests/test_integration.py
 tests/test_io.py
 tests/test_lifespan.py
 tests/test_loader.py

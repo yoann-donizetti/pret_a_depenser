@@ -13,6 +13,11 @@ pytest<10.0,>=8.0
 pytest-cov<8.0,>=4.0
 httpx<1.0,>=0.24
 
+[monitoring]
+streamlit<2.0,>=1.30
+matplotlib<4.0,>=3.7
+pandas<3.0,>=2.0
+
 [notebooks]
 matplotlib<4.0,>=3.7
 seaborn<1.0,>=0.13

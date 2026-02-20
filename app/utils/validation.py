@@ -64,6 +64,16 @@ def validate_payload(
                 details={"unknown_fields": unknown[:30], "count": len(unknown)},
             )
 
+# -------------------------
+    # 0bis) Champs manquants (Option A)
+    # -------------------------
+    missing = [f for f in kept_features if f not in payload]
+    if missing:
+        raise ApiError(
+            code="MISSING_FIELDS",
+            message="Le payload ne contient pas toutes les features attendues.",
+            details={"missing_fields": missing[:30], "count": len(missing)},
+        )
     # -------------------------
     # 1) SK_ID_CURR (si présent)
     # -------------------------
