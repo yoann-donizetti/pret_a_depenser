@@ -35,3 +35,7 @@ app/assets
 
 build/
 dist/
+prod_logs/
+
+examples/X_api.csv
+.vscode/

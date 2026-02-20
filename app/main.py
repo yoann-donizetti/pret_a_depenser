@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +14,7 @@ from app.model.predict import predict_score
 from app.utils.validation import validate_payload
 from app.utils.errors import ApiError
 from app.schemas import PredictRequest,HealthResponse
+from app.utils.prod_logging import log_event
 from fastapi.responses import RedirectResponse
 
 
@@ -38,7 +38,7 @@ def _bundle_source() -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     global MODEL, KEPT_FEATURES, CAT_FEATURES, THRESHOLD
 
     source = _bundle_source()
@@ -85,25 +85,48 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     
 
     @app.get("/health", response_model=HealthResponse)
-    def health() -> HealthResponse:
+    def _health() -> HealthResponse:
+        t0 = time.time()
         ok = MODEL is not None and KEPT_FEATURES is not None and CAT_FEATURES is not None and THRESHOLD is not None
-        return HealthResponse(status="ok" if ok else "not_ready")
+        status = "ok" if ok else "not_ready"
+
+        log_event({
+            "endpoint": "/health",
+            "status_code": 200,
+            "ready": status,
+            "latency_ms": round((time.time() - t0) * 1000, 2),
+        })
+
+        return HealthResponse(status=status)
 
     @app.post("/predict")
-    async def predict(payload: PredictRequest) -> JSONResponse:
+    async def _predict(payload: PredictRequest) -> JSONResponse:
         t0 = time.time()
-        try:
-            payload_dict = payload.model_dump(exclude_none=True)
+        payload_dict = payload.model_dump(exclude_unset=True)
 
+        # (Optionnel mais pratique) pour relier logs et réponses
+        sk_id = payload_dict.get("SK_ID_CURR")
+
+        try:
             if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
-                return JSONResponse(
-                    status_code=503,
-                    content={
-                        "error": "NOT_READY",
-                        "message": "API not ready: model/artifacts not loaded yet.",
-                        "latency_ms": round((time.time() - t0) * 1000, 2),
-                    },
-                )
+                out = {
+                    "error": "NOT_READY",
+                    "message": "API not ready: model/artifacts not loaded yet.",
+                    "latency_ms": round((time.time() - t0) * 1000, 2),
+                }
+
+                # LOG
+                log_event({
+                    "endpoint": "/predict",
+                    "status_code": 503,
+                    "sk_id_curr": sk_id,
+                    "latency_ms": out["latency_ms"],
+                    "inputs": payload_dict,
+                    "error": out["error"],
+                    "message": out["message"],
+                })
+
+                return JSONResponse(status_code=503, content=out)
 
             payload_valid = validate_payload(
                 payload_dict, KEPT_FEATURES, CAT_FEATURES, reject_unknown_fields=True
@@ -111,23 +134,63 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
             out = predict_score(MODEL, payload_valid, KEPT_FEATURES, CAT_FEATURES, threshold=THRESHOLD)
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
+
+            # LOG success
+            log_event({
+                "endpoint": "/predict",
+                "status_code": 200,
+                "sk_id_curr": sk_id,
+                "latency_ms": out["latency_ms"],
+                "inputs": payload_valid,  # payload "nettoyé" (meilleur pour drift)
+                "outputs": {
+                    "proba_default": out.get("proba_default"),
+                    "score": out.get("score"),
+                    "decision": out.get("decision"),
+                    "threshold": out.get("threshold"),
+                },
+            })
+
             return JSONResponse(status_code=200, content=out)
 
         except ApiError as e:
             out = e.to_dict()
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
+
+            # LOG ApiError
+            log_event({
+                "endpoint": "/predict",
+                "status_code": e.http_status,
+                "sk_id_curr": sk_id,
+                "latency_ms": out["latency_ms"],
+                "inputs": payload_dict,
+                "error": out.get("error"),
+                "message": out.get("message"),
+                "details": out.get("details"),
+            })
+
             return JSONResponse(status_code=e.http_status, content=out)
 
         except Exception as e:
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": "INTERNAL_ERROR",
-                    "message": str(e),
-                    "latency_ms": round((time.time() - t0) * 1000, 2),
-                },
-            )
+            out = {
+                "error": "INTERNAL_ERROR",
+                "message": str(e),
+                "latency_ms": round((time.time() - t0) * 1000, 2),
+            }
 
-    return app  # <-- IMPORTANT: à ce niveau, pas dans un except/try
+            # LOG 500
+            log_event({
+                "endpoint": "/predict",
+                "status_code": 500,
+                "sk_id_curr": sk_id,
+                "latency_ms": out["latency_ms"],
+                "inputs": payload_dict,
+                "error": out["error"],
+                "message": out["message"],
+            })
+
+            return JSONResponse(status_code=500, content=out)
+
+    return app
+
 
 app = create_app(enable_lifespan=True)
