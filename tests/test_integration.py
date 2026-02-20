@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-import app.model.loader as loader 
+import app.model.loader as loader_mod
 
 
 class FakeModel:
@@ -21,14 +21,17 @@ def client(monkeypatch: pytest.MonkeyPatch):
     fake_cat = []
     fake_thr = 0.5
 
+    # Forcer "local" et éviter tout auto-switch HF
     monkeypatch.setenv("BUNDLE_SOURCE", "local")
+    monkeypatch.delenv("HF_REPO_ID", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
 
+    def fake_loader(**kwargs):
+        return (fake_model, fake_kept, fake_cat, fake_thr)
 
-    monkeypatch.setattr(
-        loader,
-        "load_bundle_from_local",
-        lambda **kwargs: (fake_model, fake_kept, fake_cat, fake_thr),
-    )
+    # Patch BOTH targets (ultra robuste)
+    monkeypatch.setattr(main, "load_bundle_from_local", fake_loader)
+    monkeypatch.setattr(loader_mod, "load_bundle_from_local", fake_loader)
 
     app = main.create_app(enable_lifespan=True)
     with TestClient(app) as test_client:

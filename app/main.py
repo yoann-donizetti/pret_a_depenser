@@ -102,7 +102,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     @app.post("/predict")
     async def _predict(payload: PredictRequest) -> JSONResponse:
         t0 = time.time()
-        payload_dict = payload.model_dump()
+        payload_dict = payload.model_dump(exclude_unset=True)
 
         # (Optionnel mais pratique) pour relier logs et réponses
         sk_id = payload_dict.get("SK_ID_CURR")
