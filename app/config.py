@@ -1,8 +1,12 @@
-# app/config.py
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Charge .env tôt (avant de lire les variables)
+load_dotenv(override=False)
 
 
 def _env(key: str, default: str | None = None) -> str | None:
@@ -16,11 +20,13 @@ def _env(key: str, default: str | None = None) -> str | None:
 # ENV
 ENV = (_env("ENV", "dev") or "dev").lower()
 
-# Source bundle: local | hf | auto
+# Bundle source: local | hf | auto
 BUNDLE_SOURCE = (_env("BUNDLE_SOURCE", "auto") or "auto").lower()
 
-# Local paths (assets gitignored)
+# Project root = dossier racine du repo (parent de app/)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
 ASSETS_DIR = Path(_env("ASSETS_DIR", str(PROJECT_ROOT / "app" / "assets")))
 
 LOCAL_MODEL_PATH = _env("LOCAL_MODEL_PATH", str(ASSETS_DIR / "model" / "model.cb"))
@@ -36,4 +42,4 @@ HF_MODEL_PATH = _env("HF_MODEL_PATH", "model/model.cb")
 HF_KEPT_PATH = _env("HF_KEPT_PATH", "api_artifacts/kept_features_top125_nocorr.txt")
 HF_CAT_PATH = _env("HF_CAT_PATH", "api_artifacts/cat_features_top125_nocorr.txt")
 HF_THRESHOLD_PATH = _env("HF_THRESHOLD_PATH", "api_artifacts/threshold_catboost_top125_nocorr.json")
-PROD_LOG_DIR =_env("PROD_LOG_DIR", "prod_logs")
+

@@ -1,4 +1,0 @@
-[run]
-[coverage:run]
-omit =
-    app/config.py
