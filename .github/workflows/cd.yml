@@ -94,6 +94,9 @@ jobs:
           # So we copy monitoring/streamlit_app.py -> /tmp/hf-monitoring/streamlit_app.py
           rsync -av monitoring/streamlit_app.py /tmp/hf-monitoring/streamlit_app.py
 
+          # Copy the core directory
+          rsync -av core/ /tmp/hf-monitoring/core/
+
           # deps (choose one strategy)
           # Option 1: dedicated requirements for monitoring
           if [ -f "monitoring/requirements.txt" ]; then
