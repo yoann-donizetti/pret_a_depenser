@@ -40,7 +40,7 @@ jobs:
           # copy API-related files
           rsync -av app/ /tmp/hf-api/app/
           rsync -av core/ /tmp/hf-api/core/
-          rsync -av Dockerfile.api /tmp/hf-api/Dockerfile
+          rsync -av ./Dockerfile /tmp/hf-api/Dockerfile
           rsync -av pyproject.toml README.md /tmp/hf-api/ || true
 
           if [ -f "poetry.lock" ]; then rsync -av poetry.lock /tmp/hf-api/; fi
