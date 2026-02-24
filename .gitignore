@@ -38,5 +38,6 @@ dist/
 prod_logs/
 
 examples/X_api.csv
+examples/X_train_split_final_top125.csv
 .vscode/
 .vscode

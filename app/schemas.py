@@ -3,34 +3,38 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.types import StrictInt
 
-# On charge l'exemple une fois (au démarrage)
+# Exemple affiché dans /docs (Swagger)
 _EXAMPLE_PATH = Path("examples/input_example.json")
 
 try:
-    _EXAMPLE: Dict[str, Any] = json.loads(_EXAMPLE_PATH.read_text(encoding="utf-8"))
-    _EXAMPLE.pop("TARGET", None)
+    _raw: Dict[str, Any] = json.loads(_EXAMPLE_PATH.read_text(encoding="utf-8"))
+    _EXAMPLE = {"SK_ID_CURR": int(_raw.get("SK_ID_CURR", 100001))}
 except Exception:
-    # Fallback si le fichier n'est pas dispo (ex: tests/CI)
     _EXAMPLE = {"SK_ID_CURR": 100001}
 
 
 class PredictRequest(BaseModel):
     """
-    Option A: payload large (125 features).
-    Pydantic accepte les champs extra.
+    Mode "Feature Store DB":
+    L'API reçoit uniquement SK_ID_CURR, puis récupère les 125 features depuis la DB.
     """
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "example": _EXAMPLE
-        },
-    )
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": _EXAMPLE})
 
-    SK_ID_CURR: int
+    SK_ID_CURR: StrictInt = Field(..., gt=0)
+
+
+class PredictResponse(BaseModel):
+    SK_ID_CURR: Optional[int] = None
+    proba_default: float
+    score: int
+    decision: Literal["ACCEPTED", "REFUSED"]
+    threshold: float
+    latency_ms: float
 
 
 class HealthResponse(BaseModel):

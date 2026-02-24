@@ -1,0 +1,2 @@
+INSERT INTO prod_requests (endpoint, status_code, latency_ms, sk_id_curr, inputs, outputs, error, message)
+VALUES (%(endpoint)s, %(status_code)s, %(latency_ms)s, %(sk_id_curr)s, %(inputs)s, %(outputs)s, %(error)s, %(message)s);

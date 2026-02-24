@@ -1,42 +1,25 @@
-from __future__ import annotations
+import json
+import pytest
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
+from app.utils.io import parse_json
+from app.utils.errors import ApiError
 
-from app.utils.io import load_txt_list
+def test_parse_json_empty_raises():
+    with pytest.raises(ApiError) as e:
+        parse_json("   ")
+    assert e.value.code == "EMPTY_JSON"
 
+def test_parse_json_invalid_raises():
+    with pytest.raises(ApiError) as e:
+        parse_json("{bad json")
+    assert e.value.code == "INVALID_JSON"
+    assert "line" in (e.value.details or {})
 
-def test_load_txt_list_basic():
-    with TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "test.txt"
-        path.write_text("item1\nitem2\nitem3\n", encoding="utf-8")
+def test_parse_json_not_object_raises():
+    with pytest.raises(ApiError) as e:
+        parse_json(json.dumps([1, 2, 3]))
+    assert e.value.code == "INVALID_PAYLOAD"
 
-        result = load_txt_list(path)
-        assert result == ["item1", "item2", "item3"]
-
-
-def test_load_txt_list_with_whitespace():
-    with TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "test.txt"
-        path.write_text("  item1  \nitem2\n  item3\n", encoding="utf-8")
-
-        result = load_txt_list(path)
-        assert result == ["item1", "item2", "item3"]
-
-
-def test_load_txt_list_with_empty_lines():
-    with TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "test.txt"
-        path.write_text("item1\n\nitem2\n\n\nitem3\n", encoding="utf-8")
-
-        result = load_txt_list(path)
-        assert result == ["item1", "item2", "item3"]
-
-
-def test_load_txt_list_empty_file():
-    with TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "test.txt"
-        path.write_text("", encoding="utf-8")
-
-        result = load_txt_list(path)
-        assert result == []
+def test_parse_json_ok():
+    obj = parse_json('{"threshold": 0.42}')
+    assert obj["threshold"] == 0.42

@@ -1,29 +1,25 @@
 # app/main.py
-
 from __future__ import annotations
 
-import os
 import time
 from contextlib import asynccontextmanager
+from typing import Any, Dict
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app import config
-from app.model.loader import load_bundle_from_local, load_bundle_from_hf
+from app.model.loader import load_bundle_from_hf, load_bundle_from_local
 from app.model.predict import predict_score
-from app.schemas import PredictRequest, HealthResponse
+from app.schemas import HealthResponse, PredictRequest, PredictResponse
 from app.utils.errors import ApiError
-from app.utils.prod_logging import log_event
-from app.utils.prod_logging_db import init_db
 from app.utils.validation import validate_payload
 
-
-# Charge .env uniquement en dev/local (pas en prod Docker/CI)
-if (os.getenv("ENV") or "dev").lower() != "prod":
-    load_dotenv(override=False)
-
+from core.db.conn import init_db
+from core.db.repo_features_store import get_features_by_id
+from core.db.repo_prod_requests import insert_prod_request
+from dotenv import load_dotenv
+load_dotenv()
 
 MODEL = None
 KEPT_FEATURES = None
@@ -32,21 +28,16 @@ THRESHOLD = None
 
 
 def _bundle_source() -> str:
-    """
-    local | hf | auto
-    - si config.BUNDLE_SOURCE est local/hf => on respecte
-    - sinon auto: hf si HF_REPO_ID est défini, sinon local
-    """
     src = (config.BUNDLE_SOURCE or "auto").strip().lower()
     if src in ("local", "hf"):
         return src
     return "hf" if config.HF_REPO_ID else "local"
 
 
-def _safe_log(event: dict) -> None:
+def _safe_log(event: Dict[str, Any]) -> None:
     """Le logging ne doit jamais casser l'API."""
     try:
-        log_event(event)
+        insert_prod_request(event)
     except Exception:
         pass
 
@@ -55,6 +46,7 @@ def _safe_log(event: dict) -> None:
 async def lifespan(_app: FastAPI):
     global MODEL, KEPT_FEATURES, CAT_FEATURES, THRESHOLD
 
+    # 1) charge modèle + artifacts
     source = _bundle_source()
 
     if source == "hf":
@@ -77,7 +69,7 @@ async def lifespan(_app: FastAPI):
             threshold_path=config.LOCAL_THRESHOLD_PATH,
         )
 
-    # DB-only : initialise la table (idempotent)
+    # 2) init DB (idempotent) : prod_requests (+ features_store si tu le fais aussi ici)
     init_db()
 
     yield
@@ -86,7 +78,7 @@ async def lifespan(_app: FastAPI):
 def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     app = FastAPI(
         title="Prêt à Dépenser — Credit Scoring API",
-        description="POST /predict avec un JSON (1 client) -> proba défaut + décision + latence.",
+        description="POST /predict avec SK_ID_CURR -> proba défaut + décision + latence. Features lues depuis DB.",
         version="1.0.0",
         lifespan=lifespan if enable_lifespan else None,
     )
@@ -96,7 +88,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
         return RedirectResponse(url="/docs")
 
     @app.get("/health", response_model=HealthResponse)
-    def _health() -> HealthResponse:
+    def health() -> HealthResponse:
         t0 = time.time()
         ready = MODEL is not None and KEPT_FEATURES is not None and CAT_FEATURES is not None and THRESHOLD is not None
         status = "ok" if ready else "not_ready"
@@ -113,43 +105,72 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
         return HealthResponse(status=status)
 
-    @app.post("/predict")
-    async def _predict(payload: PredictRequest) -> JSONResponse:
+    @app.post("/predict", response_model=PredictResponse)
+    async def predict(payload: PredictRequest) -> JSONResponse:
         t0 = time.time()
-        payload_dict = payload.model_dump(exclude_unset=True)
-        sk_id = payload_dict.get("SK_ID_CURR")
+        sk_id = payload.SK_ID_CURR
 
         try:
+            # not ready
             if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
                 out = {
                     "error": "NOT_READY",
                     "message": "API not ready: model/artifacts not loaded yet.",
                     "latency_ms": round((time.time() - t0) * 1000, 2),
                 }
-
                 _safe_log(
                     {
                         "endpoint": "/predict",
                         "status_code": 503,
                         "sk_id_curr": sk_id,
                         "latency_ms": out["latency_ms"],
-                        "inputs": payload_dict,
+                        "inputs": {"SK_ID_CURR": sk_id},
                         "error": out["error"],
                         "message": out["message"],
                     }
                 )
-
                 return JSONResponse(status_code=503, content=out)
 
-            # validation stricte : rejette champs inconnus + vérifie types/bornes
+            # 1) fetch features depuis DB
+            features = get_features_by_id(int(sk_id))
+            if not features:
+                out = {
+                    "error": "NOT_FOUND",
+                    "message": f"SK_ID_CURR={sk_id} introuvable dans features_store.",
+                    "latency_ms": round((time.time() - t0) * 1000, 2),
+                }
+                _safe_log(
+                    {
+                        "endpoint": "/predict",
+                        "status_code": 404,
+                        "sk_id_curr": sk_id,
+                        "latency_ms": out["latency_ms"],
+                        "inputs": {"SK_ID_CURR": sk_id},
+                        "error": out["error"],
+                        "message": out["message"],
+                    }
+                )
+                return JSONResponse(status_code=404, content=out)
+
+            # 2) assure SK_ID_CURR présent dans les features
+            features["SK_ID_CURR"] = int(sk_id)
+
+            # 3) validation "max" sur les 125 features
             payload_valid = validate_payload(
-                payload_dict,
+                features,
                 KEPT_FEATURES,
                 CAT_FEATURES,
                 reject_unknown_fields=True,
             )
 
-            out = predict_score(MODEL, payload_valid, KEPT_FEATURES, CAT_FEATURES, threshold=THRESHOLD)
+            # 4) predict
+            out = predict_score(
+                MODEL,
+                payload_valid,
+                KEPT_FEATURES,
+                CAT_FEATURES,
+                threshold=float(THRESHOLD),
+            )
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
 
             _safe_log(
@@ -158,7 +179,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "status_code": 200,
                     "sk_id_curr": sk_id,
                     "latency_ms": out["latency_ms"],
-                    "inputs": payload_valid,  # payload "nettoyé" (utile pour drift)
+                    "inputs": payload_valid,
                     "outputs": {
                         "proba_default": out.get("proba_default"),
                         "score": out.get("score"),
@@ -180,10 +201,9 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "status_code": e.http_status,
                     "sk_id_curr": sk_id,
                     "latency_ms": out["latency_ms"],
-                    "inputs": payload_dict,
+                    "inputs": {"SK_ID_CURR": sk_id},
                     "error": out.get("error"),
                     "message": out.get("message"),
-                    # on peut stocker details dans outputs (jsonb)
                     "outputs": out.get("details"),
                 }
             )
@@ -203,7 +223,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "status_code": 500,
                     "sk_id_curr": sk_id,
                     "latency_ms": out["latency_ms"],
-                    "inputs": payload_dict,
+                    "inputs": {"SK_ID_CURR": sk_id},
                     "error": out["error"],
                     "message": out["message"],
                 }
