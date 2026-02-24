@@ -155,58 +155,57 @@ notebooks/
 
 ## Structure du projet
 
-```bash
 pret-a-depenser/
 │
-├── app/                           #  API FastAPI (couche production)
-│   ├── main.py                    # Point d'entrée FastAPI
-│   ├── config.py                  # Configuration (env vars, chemins)
-│   ├── schemas.py                 # Schémas Pydantic
-│   ├── model/
-│   │   ├── loader.py              # Chargement modèle
-│   │   └── predict.py             # Prédiction
-│   ├── utils/
-│   │   ├── validation.py          # Validation inputs
-│   │   ├── errors.py              # Gestion erreurs
-│   │   └── io.py                  # Gestion fichiers
-│   └── assets/                    # Artifacts locaux (gitignored)
+├── app/                           # API FastAPI (couche production)
+│   ├── main.py                    # Point d'entrée de l'API FastAPI
+│   ├── config.py                  # Configuration de l'application (variables d'environnement, chemins)
+│   ├── schemas.py                 # Définition des schémas Pydantic pour la validation des données
+│   ├── model/                     # Dossier contenant le modèle de machine learning
+│   │   ├── loader.py              # Script pour charger le modèle (local ou Hugging Face)
+│   │   └── predict.py             # Script pour effectuer des prédictions avec le modèle
+│   ├── utils/                     # Fonctions utilitaires pour l'API
+│   │   ├── validation.py          # Validation des entrées utilisateur
+│   │   ├── errors.py              # Gestion des erreurs et exceptions
+│   │   └── io.py                  # Gestion des fichiers (lecture/écriture)
+│   └── assets/                    # Artifacts locaux (modèle, seuils, etc.) - ignorés par Git
 │
-├── core/                          #  Accès base de données
-│   ├── config.py
-│   └── db/
-│       ├── conn.py                # Gestion connexion PostgreSQL
-│       ├── repo_features_store.py # Récupération features
-│       ├── repo_prod_requests.py  # Logging requêtes production
-│       ├── repo_ref_dist.py       # Stockage distributions référence
-│       ├── migrations/            # Scripts SQL init
-│       └── sql/                   # Requêtes paramétrées
+├── core/                          # Accès à la base de données et gestion des requêtes SQL
+│   ├── config.py                  # Configuration de la base de données
+│   └── db/                        # Dossier pour les interactions avec PostgreSQL
+│       ├── conn.py                # Gestion de la connexion à la base de données
+│       ├── repo_features_store.py # Requêtes pour récupérer les features des clients
+│       ├── repo_prod_requests.py  # Requêtes pour logger les prédictions en production
+│       ├── repo_ref_dist.py       # Requêtes pour gérer les distributions de référence (monitoring)
+│       ├── migrations/            # Scripts SQL pour initialiser ou migrer la base
+│       └── sql/                   # Requêtes SQL paramétrées
 │
-├── monitoring/                    #  Dashboard Streamlit
-│   └── streamlit_app.py           # Drift & métriques
+├── monitoring/                    # Dashboard Streamlit pour le monitoring
+│   └── streamlit_app.py           # Application Streamlit pour visualiser les métriques et le drift
 │
-├── src/                           #  Data Science (entraînement)
-│   ├── data/
-│   ├── modeling/
-│   ├── tracking/                  # MLflow tracking
-│   └── utils/
+├── src/                           # Scripts de modélisation et préparation des données
+│   ├── data/                      # Scripts pour la préparation des données
+│   ├── modeling/                  # Scripts pour entraîner et évaluer les modèles
+│   ├── tracking/                  # Scripts pour le suivi des expériences avec MLflow
+│   └── utils/                     # Fonctions utilitaires pour la modélisation
 │
-├── notebooks/                     #  Pipeline complet
-│   ├── 01_data_preparation/
-│   ├── 02_benchmark/
-│   ├── 03_modeling/
-│   └── 04_preparation_API/
+├── notebooks/                     # Notebooks Jupyter pour le pipeline complet
+│   ├── 01_data_preparation/       # Préparation et agrégation des données
+│   ├── 02_benchmark/              # Benchmark des modèles
+│   ├── 03_modeling/               # Sélection des features, tuning, seuil métier
+│   └── 04_preparation_API/        # Génération des artifacts pour l'API
 │
-├── tests/                         #  Tests unitaires
-├── scripts/                       #  Scripts utilitaires
-├── artifacts/                     #  Exports (modèle, seuil, features)
-├── data/                          #  Données locales (non versionnées)
+├── tests/                         # Tests unitaires pour valider le fonctionnement du projet
+├── scripts/                       # Scripts utilitaires pour des tâches spécifiques
+├── artifacts/                     # Artifacts générés (modèle, seuils, features) - non versionnés
+├── data/                          # Données locales (non versionnées dans Git)
 │
-├── docker-compose.yml             # PostgreSQL local
-├── Dockerfile                     # Image Docker API
-├── pyproject.toml                 # Dépendances Python
-├── pytest.ini                     # Configuration pytest
-├── .env                           # Variables locales
-└── README.md
+├── docker-compose.yml             # Configuration Docker pour PostgreSQL en local
+├── Dockerfile                     # Fichier Docker pour containeriser l'API
+├── pyproject.toml                 # Fichier de configuration des dépendances Python
+├── pytest.ini                     # Configuration pour les tests avec pytest
+├── .env                           # Fichier pour les variables d'environnement locales
+└── README.md                      # Documentation du projet
 ```
 
 ---
