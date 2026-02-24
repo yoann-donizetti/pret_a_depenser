@@ -44,4 +44,4 @@ jobs:
 
       - name: Build image (no push)
         run: |
-          docker build -t pad-api:ci -f Dockerfile.api .
+          docker build -t pad-api:ci .
