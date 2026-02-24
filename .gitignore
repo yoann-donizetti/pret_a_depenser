@@ -39,3 +39,4 @@ prod_logs/
 
 examples/X_api.csv
 .vscode/
+.vscode
