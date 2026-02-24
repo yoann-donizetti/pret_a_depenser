@@ -2,16 +2,15 @@ name: CD
 
 on:
   workflow_run:
-    workflows: ["CI"]   
+    workflows: ["CI"]
     types: [completed]
     branches: ["main"]
 
 jobs:
-  deploy_hf_space:
-    name: CD / Deploy to Hugging Face Space
+  deploy_api_space:
+    name: CD / Deploy API Space (Docker)
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout (the commit that passed CI)
         uses: actions/checkout@v4
@@ -24,41 +23,100 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rsync
 
-      - name: Deploy to Hugging Face Space (git push)
+      - name: Deploy to HF Space (API)
         env:
-          HF_USERNAME: ${{ secrets.HF_USERNAME }}     
-          HF_SPACE_REPO: ${{ secrets.HF_SPACE_REPO }} 
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_API_SPACE_REPO: ${{ secrets.HF_API_SPACE_REPO }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set -euo pipefail
 
-          rm -rf /tmp/hf-space
-          git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_REPO}" /tmp/hf-space
+          rm -rf /tmp/hf-api
+          git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_API_SPACE_REPO}" /tmp/hf-api
 
-          
-          find /tmp/hf-space -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+          # clean repo (except .git)
+          find /tmp/hf-api -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
 
-          
-          rsync -av app/ /tmp/hf-space/app/
-          rsync -av Dockerfile README.md pyproject.toml /tmp/hf-space/ || true
+          # copy API-related files
+          rsync -av app/ /tmp/hf-api/app/
+          rsync -av core/ /tmp/hf-api/core/
+          rsync -av Dockerfile.api /tmp/hf-api/Dockerfile
+          rsync -av pyproject.toml README.md /tmp/hf-api/ || true
 
-    
-          if [ -f "poetry.lock" ]; then rsync -av poetry.lock /tmp/hf-space/; fi
+          if [ -f "poetry.lock" ]; then rsync -av poetry.lock /tmp/hf-api/; fi
+          if [ -f "pytest.ini" ]; then rsync -av pytest.ini /tmp/hf-api/; fi
 
-    
-          if [ -f "pytest.ini" ]; then rsync -av pytest.ini /tmp/hf-space/; fi
+          # commit & push
+          git -C /tmp/hf-api config user.name "github-actions"
+          git -C /tmp/hf-api config user.email "github-actions@github.com"
 
-          # IMPORTANT: config git DANS le repo HF
-          git -C /tmp/hf-space config user.name "github-actions"
-          git -C /tmp/hf-space config user.email "github-actions@github.com"
-
-          cd /tmp/hf-space
+          cd /tmp/hf-api
           git add -A
-
           if git diff --cached --quiet; then
-            echo "No changes to deploy."
+            echo "No changes to deploy (API)."
             exit 0
           fi
+          git commit -m "Deploy API from GitHub Actions (${GITHUB_SHA})"
+          git push
 
-          git commit -m "Deploy from GitHub Actions (${GITHUB_SHA})"
+  deploy_monitoring_space:
+    name: CD / Deploy Monitoring Space (Streamlit)
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    needs: deploy_api_space
+    steps:
+      - name: Checkout (the commit that passed CI)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Install rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
+
+      - name: Deploy to HF Space (Monitoring)
+        env:
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_MONITORING_SPACE_REPO: ${{ secrets.HF_MONITORING_SPACE_REPO }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          rm -rf /tmp/hf-monitoring
+          git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_MONITORING_SPACE_REPO}" /tmp/hf-monitoring
+
+          # clean repo (except .git)
+          find /tmp/hf-monitoring -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+
+          # Streamlit native: app file must be at repo root (recommended on HF)
+          # So we copy monitoring/streamlit_app.py -> /tmp/hf-monitoring/streamlit_app.py
+          rsync -av monitoring/streamlit_app.py /tmp/hf-monitoring/streamlit_app.py
+
+          # deps (choose one strategy)
+          # Option 1: dedicated requirements for monitoring
+          if [ -f "monitoring/requirements.txt" ]; then
+            rsync -av monitoring/requirements.txt /tmp/hf-monitoring/requirements.txt
+          elif [ -f "requirements_monitoring.txt" ]; then
+            rsync -av requirements_monitoring.txt /tmp/hf-monitoring/requirements.txt
+          elif [ -f "requirements.txt" ]; then
+            rsync -av requirements.txt /tmp/hf-monitoring/requirements.txt
+          fi
+
+          # Optional: README for the space
+          if [ -f "monitoring/README.md" ]; then
+            rsync -av monitoring/README.md /tmp/hf-monitoring/README.md
+          fi
+
+          git -C /tmp/hf-monitoring config user.name "github-actions"
+          git -C /tmp/hf-monitoring config user.email "github-actions@github.com"
+
+          cd /tmp/hf-monitoring
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to deploy (Monitoring)."
+            exit 0
+          fi
+          git commit -m "Deploy Monitoring from GitHub Actions (${GITHUB_SHA})"
           git push

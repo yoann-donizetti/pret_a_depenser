@@ -1,80 +1,85 @@
-from __future__ import annotations
-
 from pathlib import Path
 import json
 import pytest
 
 import app.model.loader as loader
 
+class DummyCat:
+    def __init__(self):
+        self.loaded = None
+    def load_model(self, path):
+        self.loaded = path
 
-def _write_minimal_artifacts(base: Path) -> dict:
-    base.mkdir(parents=True, exist_ok=True)
-    kept = base / "kept_features_top125_nocorr.txt"
-    cat = base / "cat_features_top125_nocorr.txt"
-    thr = base / "threshold_catboost_top125_nocorr.json"
+def test_load_bundle_from_local_missing_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(loader, "CatBoostClassifier", DummyCat)
 
-    kept.write_text("SK_ID_CURR\nEXT_SOURCE_1\n", encoding="utf-8")
-    cat.write_text("", encoding="utf-8")
-    thr.write_text(json.dumps({"threshold": 0.42}), encoding="utf-8")
+    with pytest.raises(FileNotFoundError):
+        loader.load_bundle_from_local(
+            model_path=tmp_path / "model.cb",
+            kept_path=tmp_path / "kept.txt",
+            cat_path=tmp_path / "cat.txt",
+            threshold_path=tmp_path / "thr.json",
+        )
 
-    return {"kept": kept, "cat": cat, "thr": thr}
+def test_load_bundle_from_local_ok(tmp_path, monkeypatch):
+    monkeypatch.setattr(loader, "CatBoostClassifier", DummyCat)
 
+    model_file = tmp_path / "model.cb"
+    kept_file = tmp_path / "kept.txt"
+    cat_file = tmp_path / "cat.txt"
+    thr_file = tmp_path / "thr.json"
 
-def test_load_bundle_from_local_loads_all_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    model_dir = tmp_path / "model"
-    art_dir = tmp_path / "api_artifacts"
-    model_dir.mkdir()
-
-    files = _write_minimal_artifacts(art_dir)
-    model_file = model_dir / "model.cb"
-    model_file.write_bytes(b"FAKE_CATBOOST_MODEL")
-
-    fake_model = object()
-    monkeypatch.setattr(loader, "_load_catboost_from_file", lambda *_a, **_k: fake_model)
+    model_file.write_text("fake", encoding="utf-8")
+    kept_file.write_text("A\nB\n", encoding="utf-8")
+    cat_file.write_text("B\n", encoding="utf-8")
+    thr_file.write_text(json.dumps({"threshold": 0.33}), encoding="utf-8")
 
     model, kept, cat, thr = loader.load_bundle_from_local(
         model_path=model_file,
-        kept_path=files["kept"],
-        cat_path=files["cat"],
-        threshold_path=files["thr"],
+        kept_path=kept_file,
+        cat_path=cat_file,
+        threshold_path=thr_file,
     )
 
-    assert model is fake_model
-    assert kept == ["SK_ID_CURR", "EXT_SOURCE_1"]
-    assert cat == []
-    assert thr == 0.42
+    assert kept == ["A", "B"]
+    assert cat == ["B"]
+    assert thr == 0.33
+    assert model.loaded == str(model_file)
 
+def test_load_bundle_from_hf_ok(tmp_path, monkeypatch):
+    monkeypatch.setattr(loader, "CatBoostClassifier", DummyCat)
 
-def test_load_bundle_from_hf_downloads_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    repo_root = tmp_path / "repo"
-    model_dir = repo_root / "model"
-    art_dir = repo_root / "api_artifacts"
-    model_dir.mkdir(parents=True)
+    # Simule les fichiers téléchargés HF => on renvoie des paths tmp
+    model_file = tmp_path / "model.cb"
+    kept_file = tmp_path / "kept.txt"
+    cat_file = tmp_path / "cat.txt"
+    thr_file = tmp_path / "thr.json"
 
-    files = _write_minimal_artifacts(art_dir)
-    model_path = model_dir / "model.cb"
-    model_path.write_bytes(b"FAKE")
+    model_file.write_text("fake", encoding="utf-8")
+    kept_file.write_text("A\nB\n", encoding="utf-8")
+    cat_file.write_text("B\n", encoding="utf-8")
+    thr_file.write_text('{"threshold": 0.9}', encoding="utf-8")
 
-    fake_model = object()
-    monkeypatch.setattr(loader, "_load_catboost_from_file", lambda *_a, **_k: fake_model)
+    def fake_hf_download(repo_id, filename, token=None):
+        mapping = {
+            "model/model.cb": model_file,
+            "api_artifacts/kept.txt": kept_file,
+            "api_artifacts/cat.txt": cat_file,
+            "api_artifacts/thr.json": thr_file,
+        }
+        return str(mapping[filename])
 
-    def fake_hf_hub_download(repo_id: str, filename: str, token=None, **kwargs):
-        local = repo_root / filename
-        assert local.exists(), f"Fichier demandé inexistant: {local}"
-        return str(local)
-
-    monkeypatch.setattr(loader, "hf_hub_download", fake_hf_hub_download)
+    monkeypatch.setattr(loader, "hf_hub_download", fake_hf_download)
 
     model, kept, cat, thr = loader.load_bundle_from_hf(
-        repo_id="donizetti-yoann/pret-a-depenser-scoring",
+        repo_id="x/y",
         model_path="model/model.cb",
-        kept_path="api_artifacts/kept_features_top125_nocorr.txt",
-        cat_path="api_artifacts/cat_features_top125_nocorr.txt",
-        threshold_path="api_artifacts/threshold_catboost_top125_nocorr.json",
-        token="fake",
+        kept_path="api_artifacts/kept.txt",
+        cat_path="api_artifacts/cat.txt",
+        threshold_path="api_artifacts/thr.json",
+        token="t",
     )
 
-    assert model is fake_model
-    assert kept == ["SK_ID_CURR", "EXT_SOURCE_1"]
-    assert cat == []
-    assert thr == 0.42
+    assert thr == 0.9
+    assert kept == ["A", "B"]
+    assert cat == ["B"]

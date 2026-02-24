@@ -1,4 +1,3 @@
-# scripts/simulate_requests.py
 from __future__ import annotations
 
 import argparse
@@ -15,28 +14,27 @@ def main():
     parser.add_argument("--csv", default="examples/X_api.csv")
     parser.add_argument("--n", type=int, default=300)
     parser.add_argument("--sleep", type=float, default=0.0)
-    parser.add_argument("--timeout", type=float, default=60.0)  # <-- NEW
+    parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--endpoint", default="/predict")
     args = parser.parse_args()
 
     csv_path = Path(args.csv)
     if not csv_path.exists():
-        raise FileNotFoundError(
-            f"CSV introuvable: {csv_path}. "
-            f"Conseil: mets X_api.csv dans examples/ (versionné) ou indique --csv <chemin>."
-        )
+        raise FileNotFoundError(f"CSV introuvable: {csv_path}")
 
     df = pd.read_csv(csv_path)
-    if args.n > len(df):
-        args.n = len(df)
+    if "SK_ID_CURR" not in df.columns:
+        raise ValueError("Le CSV doit contenir la colonne SK_ID_CURR.")
 
-    url = f"{args.base_url.rstrip('/')}/predict"
+    n = min(args.n, len(df))
+    url = f"{args.base_url.rstrip('/')}{args.endpoint}"
 
     ok = 0
     ko = 0
 
-    for i in range(args.n):
-        row = df.iloc[i].to_dict()
-        payload = {k: (None if pd.isna(v) else v) for k, v in row.items()}
+    for i in range(n):
+        sk_id = int(df.iloc[i]["SK_ID_CURR"])
+        payload = {"SK_ID_CURR": sk_id}
 
         t0 = time.time()
         try:
@@ -48,12 +46,11 @@ def main():
             else:
                 ko += 1
                 if ko <= 5:
-                    print(f"[{i+1}/{args.n}] KO {r.status_code} ({latency_ms}ms): {r.text[:200]}")
-
+                    print(f"[{i+1}/{n}] KO {r.status_code} ({latency_ms}ms): {r.text[:200]}")
         except Exception as e:
             ko += 1
             if ko <= 5:
-                print(f"[{i+1}/{args.n}] EXC: {e!r}")
+                print(f"[{i+1}/{n}] EXC: {e!r}")
 
         if args.sleep > 0:
             time.sleep(args.sleep)
