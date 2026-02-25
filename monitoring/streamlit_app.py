@@ -164,9 +164,25 @@ for feat in common:
 drift = pd.DataFrame(psi_rows).sort_values("psi", ascending=False)
 st.dataframe(drift, use_container_width=True, hide_index=True)
 
-topk = drift.dropna().head(20)
-st.plotly_chart(px.bar(topk[::-1], x="psi", y="feature", orientation="h", title="Top 20 PSI (drift)"),
-                use_container_width=True)
+topk = drift.dropna().head(20).copy()
+
+# on garde l'ordre décroissant (déjà trié)
+topk = topk.sort_values("psi", ascending=False)
+
+fig_top = px.bar(
+    topk,
+    x="psi",
+    y="feature",
+    orientation="h",
+    title="Top 20 PSI (drift)"
+)
+
+# Inverser l’axe Y pour que le plus grand soit en haut
+fig_top.update_yaxes(autorange="reversed")
+
+fig_top.update_layout(height=650, margin=dict(l=260, r=40, t=60, b=40))
+
+st.plotly_chart(fig_top, use_container_width=True)
 
 # ---- Détail feature
 st.subheader("3) Détail feature (ref vs prod)")
