@@ -7,13 +7,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import psycopg
+from dotenv import load_dotenv
+load_dotenv()
 
 from core.config import PROJECT_ROOT, DATABASE_URL
 
 
 MIGRATIONS_DIR = PROJECT_ROOT / "core" / "db" / "migrations"
 SQL_DIR = PROJECT_ROOT / "core" / "db" / "sql"
-
+EXCLUDED_FEATURES = {"SK_ID_CURR"}
 
 def load_sql(path: Path) -> str:
     if not path.exists():
@@ -105,6 +107,8 @@ def main() -> None:
 
     rows = []
     for col in df.columns:
+        if col in EXCLUDED_FEATURES:
+            continue
         kind = infer_kind(df[col])
         if kind == "numeric":
             bins_json, dist_json, n_ref = numeric_ref_dist(df[col], args.bins)
