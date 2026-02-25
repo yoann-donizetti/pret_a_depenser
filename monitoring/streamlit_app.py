@@ -20,6 +20,10 @@ from core.db.repo_ref_dist import load_all_ref, load_one_ref
 load_dotenv()
 init_db()
 
+# --- Sécurité / RGPD : colonnes à ne jamais exposer dans le dashboard
+EXCLUDED_FEATURES = {"SK_ID_CURR"}      # drift + détails
+EXCLUDED_META_COLS = {"sk_id_curr"}     # meta affichée (logs)
+
 # -----------------------
 # PSI helpers (ref dist en DB)
 # -----------------------
@@ -86,9 +90,13 @@ if not rows:
     st.warning("Aucune requête trouvée en DB (prod_requests).")
     st.stop()
 
-prod_meta = pd.DataFrame([{k: r.get(k) for k in ["ts","endpoint","status_code","latency_ms","sk_id_curr","error","message"]} for r in rows])
+prod_meta = pd.DataFrame([
+    {k: r.get(k) for k in ["ts","endpoint","status_code","latency_ms","error","message"]}
+    for r in rows
+])
 prod_inputs = pd.DataFrame([r.get("inputs") or {} for r in rows])
-
+# Sécurité : on retire les features sensibles du dataset prod utilisé par le dashboard
+prod_inputs = prod_inputs.drop(columns=[c for c in EXCLUDED_FEATURES if c in prod_inputs.columns], errors="ignore")
 st.success(f"DB chargée: {len(prod_meta)} requêtes | inputs: {prod_inputs.shape[0]}×{prod_inputs.shape[1]}")
 
 # ---- OPS
@@ -115,7 +123,7 @@ if not ref_rows:
     st.stop()
 
 ref_df = pd.DataFrame(ref_rows)
-ref_features = ref_df["feature"].tolist()
+ref_features = [f for f in ref_df["feature"].tolist() if f not in EXCLUDED_FEATURES]
 
 common = [c for c in ref_features if c in prod_inputs.columns]
 missing_in_prod = [c for c in ref_features if c not in prod_inputs.columns]
@@ -126,6 +134,8 @@ psi_rows: List[Dict[str, Any]] = []
 ref_map = {r["feature"]: r for r in ref_rows}
 
 for feat in common:
+    if feat in EXCLUDED_FEATURES:
+        continue
     ref = ref_map[feat]
     kind = ref["kind"]
     ref_dist = ref["ref_dist_json"] or {}
