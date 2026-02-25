@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 import requests
-
+from dotenv import load_dotenv
+load_dotenv()
 
 def main():
     parser = argparse.ArgumentParser()
