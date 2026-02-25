@@ -7,7 +7,8 @@ from typing import Any, Dict
 import pandas as pd
 import psycopg
 from psycopg.types.json import Jsonb
-
+from dotenv import load_dotenv
+load_dotenv()
 from core.config import PROJECT_ROOT, DATABASE_URL
 
 
