@@ -59,6 +59,7 @@ jobs:
           git commit -m "Deploy API from GitHub Actions (${GITHUB_SHA})"
           git push
 
+  
   deploy_monitoring_space:
     name: CD / Deploy Monitoring Space (Streamlit)
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
@@ -87,28 +88,19 @@ jobs:
           rm -rf /tmp/hf-monitoring
           git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_MONITORING_SPACE_REPO}" /tmp/hf-monitoring
 
-         
+          # clean repo (except .git)
           find /tmp/hf-monitoring -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
 
-          
+          # Copy monitoring package (Python package)
           rsync -av monitoring/ /tmp/hf-monitoring/monitoring/
 
-          
-          
-          cat > /tmp/hf-monitoring/streamlit_app.py << 'EOF'
-import sys
-from pathlib import Path
+          # Copy root Streamlit app
+          rsync -av monitoring/streamlit_app.py /tmp/hf-monitoring/streamlit_app.py
 
-ROOT = Path(__file__).resolve().parent
-sys.path.append(str(ROOT))
-
-from monitoring.streamlit_app import *  # noqa
-EOF
-
-          
+          # Copy DB layer
           rsync -av core/ /tmp/hf-monitoring/core/
 
-         
+          # Always copy requirements + README
           rsync -av monitoring/requirements.txt /tmp/hf-monitoring/requirements.txt
           rsync -av monitoring/README.md /tmp/hf-monitoring/README.md
 
