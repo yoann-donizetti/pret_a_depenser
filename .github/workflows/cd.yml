@@ -34,10 +34,10 @@ jobs:
           rm -rf /tmp/hf-api
           git clone "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_API_SPACE_REPO}" /tmp/hf-api
 
-          # clean repo (except .git)
+          
           find /tmp/hf-api -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
 
-          # copy API-related files
+          
           rsync -av app/ /tmp/hf-api/app/
           rsync -av core/ /tmp/hf-api/core/
           rsync -av ./Dockerfile /tmp/hf-api/Dockerfile
@@ -59,6 +59,7 @@ jobs:
           git commit -m "Deploy API from GitHub Actions (${GITHUB_SHA})"
           git push
 
+  
   deploy_monitoring_space:
     name: CD / Deploy Monitoring Space (Streamlit)
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
@@ -90,27 +91,18 @@ jobs:
           # clean repo (except .git)
           find /tmp/hf-monitoring -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
 
-          # Streamlit native: app file must be at repo root (recommended on HF)
-          # So we copy monitoring/streamlit_app.py -> /tmp/hf-monitoring/streamlit_app.py
+          # Copy monitoring package (Python package)
+          rsync -av monitoring/ /tmp/hf-monitoring/monitoring/
+
+          # Copy root Streamlit app
           rsync -av monitoring/streamlit_app.py /tmp/hf-monitoring/streamlit_app.py
 
-          # Copy the core directory
+          # Copy DB layer
           rsync -av core/ /tmp/hf-monitoring/core/
 
-          # deps (choose one strategy)
-          # Option 1: dedicated requirements for monitoring
-          if [ -f "monitoring/requirements.txt" ]; then
-            rsync -av monitoring/requirements.txt /tmp/hf-monitoring/requirements.txt
-          elif [ -f "requirements_monitoring.txt" ]; then
-            rsync -av requirements_monitoring.txt /tmp/hf-monitoring/requirements.txt
-          elif [ -f "requirements.txt" ]; then
-            rsync -av requirements.txt /tmp/hf-monitoring/requirements.txt
-          fi
-
-          # Optional: README for the space
-          if [ -f "monitoring/README.md" ]; then
-            rsync -av monitoring/README.md /tmp/hf-monitoring/README.md
-          fi
+          # Always copy requirements + README
+          rsync -av monitoring/requirements.txt /tmp/hf-monitoring/requirements.txt
+          rsync -av monitoring/README.md /tmp/hf-monitoring/README.md
 
           git -C /tmp/hf-monitoring config user.name "github-actions"
           git -C /tmp/hf-monitoring config user.email "github-actions@github.com"
