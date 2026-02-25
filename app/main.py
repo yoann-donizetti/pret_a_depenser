@@ -1,4 +1,5 @@
 # app/main.py
+
 from __future__ import annotations
 
 import time
@@ -18,7 +19,9 @@ from app.utils.validation import validate_payload
 from core.db.conn import init_db
 from core.db.repo_features_store import get_features_by_id
 from core.db.repo_prod_requests import insert_prod_request
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 MODEL = None
@@ -69,7 +72,7 @@ async def lifespan(_app: FastAPI):
             threshold_path=config.LOCAL_THRESHOLD_PATH,
         )
 
-    # 2) init DB (idempotent) : prod_requests (+ features_store si tu le fais aussi ici)
+    # 2) init DB (idempotent)
     init_db()
 
     yield
@@ -110,6 +113,13 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
         t0 = time.time()
         sk_id = payload.SK_ID_CURR
 
+        # on stocke des timings "étape par étape" (sans changer la DB)
+        timing: Dict[str, float] = {}
+
+        # petit contexte utile pour le diagnostic
+        bundle_source = _bundle_source()
+        hf_repo_id = config.HF_REPO_ID if bundle_source == "hf" else None
+
         try:
             # not ready
             if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
@@ -127,12 +137,20 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "inputs": {"SK_ID_CURR": sk_id},
                         "error": out["error"],
                         "message": out["message"],
+                        "outputs": {
+                            "timing": timing,
+                            "bundle_source": bundle_source,
+                            "hf_repo_id": hf_repo_id,
+                        },
                     }
                 )
                 return JSONResponse(status_code=503, content=out)
 
             # 1) fetch features depuis DB
+            t_db = time.time()
             features = get_features_by_id(int(sk_id))
+            timing["db_ms"] = round((time.time() - t_db) * 1000, 2)
+
             if not features:
                 out = {
                     "error": "NOT_FOUND",
@@ -148,22 +166,30 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "inputs": {"SK_ID_CURR": sk_id},
                         "error": out["error"],
                         "message": out["message"],
+                        "outputs": {
+                            "timing": timing,
+                            "bundle_source": bundle_source,
+                            "hf_repo_id": hf_repo_id,
+                        },
                     }
                 )
                 return JSONResponse(status_code=404, content=out)
 
-            # 2) assure SK_ID_CURR présent dans les features
+            # 2) assure SK_ID_CURR présent dans les features (utile pour traçabilité interne)
             features["SK_ID_CURR"] = int(sk_id)
 
-            # 3) validation "max" sur les 125 features
+            # 3) validation "max"
+            t_val = time.time()
             payload_valid = validate_payload(
                 features,
                 KEPT_FEATURES,
                 CAT_FEATURES,
                 reject_unknown_fields=True,
             )
+            timing["validation_ms"] = round((time.time() - t_val) * 1000, 2)
 
             # 4) predict
+            t_inf = time.time()
             out = predict_score(
                 MODEL,
                 payload_valid,
@@ -171,7 +197,10 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 CAT_FEATURES,
                 threshold=float(THRESHOLD),
             )
+            timing["inference_ms"] = round((time.time() - t_inf) * 1000, 2)
+
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
+            timing["total_ms"] = out["latency_ms"]
 
             _safe_log(
                 {
@@ -185,6 +214,9 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "score": out.get("score"),
                         "decision": out.get("decision"),
                         "threshold": out.get("threshold"),
+                        "timing": timing,
+                        "bundle_source": bundle_source,
+                        "hf_repo_id": hf_repo_id,
                     },
                 }
             )
@@ -194,6 +226,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
         except ApiError as e:
             out = e.to_dict()
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
+            timing["total_ms"] = out["latency_ms"]
 
             _safe_log(
                 {
@@ -204,7 +237,12 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "inputs": {"SK_ID_CURR": sk_id},
                     "error": out.get("error"),
                     "message": out.get("message"),
-                    "outputs": out.get("details"),
+                    "outputs": {
+                        "details": out.get("details"),
+                        "timing": timing,
+                        "bundle_source": bundle_source,
+                        "hf_repo_id": hf_repo_id,
+                    },
                 }
             )
 
@@ -216,6 +254,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 "message": str(e),
                 "latency_ms": round((time.time() - t0) * 1000, 2),
             }
+            timing["total_ms"] = out["latency_ms"]
 
             _safe_log(
                 {
@@ -226,6 +265,11 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "inputs": {"SK_ID_CURR": sk_id},
                     "error": out["error"],
                     "message": out["message"],
+                    "outputs": {
+                        "timing": timing,
+                        "bundle_source": bundle_source,
+                        "hf_repo_id": hf_repo_id,
+                    },
                 }
             )
 
