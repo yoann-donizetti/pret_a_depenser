@@ -27,6 +27,7 @@ from monitoring.lib.drift import (
     prod_dist_categorical,
     count_drift,
 )
+from monitoring.lib.timings import extract_timings
 
 # -----------------------
 # Setup
@@ -77,7 +78,7 @@ rows = [r for r in rows if str(r.get("ts")) in kept_ts]
 
 prod_inputs = pd.DataFrame([r.get("inputs") or {} for r in rows])
 prod_outputs = pd.DataFrame([r.get("outputs") or {} for r in rows])
-
+timing_df = extract_timings(prod_outputs)
 # Sécurité : on retire les features sensibles du dataset prod utilisé par le dashboard
 prod_inputs = prod_inputs.drop(columns=[c for c in EXCLUDED_FEATURES if c in prod_inputs.columns], errors="ignore")
 
@@ -106,7 +107,45 @@ if stats["p95"] > float(p95_threshold):
 else:
     st.success(f" p95 ({stats['p95']:.2f} ms) sous le seuil ({p95_threshold} ms).")
 
-st.plotly_chart(px.histogram(lat.dropna(), nbins=30, title="Distribution latence (ms)"), use_container_width=True)
+#timings détaillés
+
+st.subheader("Timings détaillés (ms) — DB / Validation / Inference / Total")
+
+if timing_df.empty:
+    st.info("Aucun champ 'timing' trouvé dans outputs (logs).")
+else:
+    c1, c2, c3, c4 = st.columns(4)
+
+    def q95(s):
+        s = s.dropna()
+        return float(s.quantile(0.95)) if len(s) else 0.0
+
+    with c1:
+        st.metric("DB p95", round(q95(timing_df["db_ms"]), 2))
+    with c2:
+        st.metric("Validation p95", round(q95(timing_df["validation_ms"]), 2))
+    with c3:
+        st.metric("Inference p95", round(q95(timing_df["inference_ms"]), 2))
+    with c4:
+        st.metric("Total p95", round(q95(timing_df["total_ms"]), 2))
+
+    st.plotly_chart(
+        px.histogram(timing_df["db_ms"].dropna(), nbins=30, title="DB time (ms)"),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        px.histogram(timing_df["inference_ms"].dropna(), nbins=30, title="Inference time (ms)"),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        px.histogram(timing_df["validation_ms"].dropna(), nbins=30, title="Validation time (ms)"),
+        use_container_width=True,
+    )
+
+
+
+
+st.plotly_chart(px.histogram(lat.dropna(), nbins=30, title="Distribution latence totale (ms)"), use_container_width=True)
 
 status_counts = prod_meta["status_code"].value_counts(dropna=False).sort_index()
 st.plotly_chart(px.bar(status_counts, title="Codes HTTP"), use_container_width=True)
