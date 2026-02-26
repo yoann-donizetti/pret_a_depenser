@@ -26,7 +26,7 @@ def test_latency_stats_ms_empty():
     assert out["p95"] == 0.0
     assert out["p99"] == 0.0
     assert out["mean"] == 0.0
-    assert out["median"] == 0.0
+
 
 
 def test_latency_stats_ms_non_empty():
@@ -36,7 +36,6 @@ def test_latency_stats_ms_non_empty():
     assert out["p95"] >= out["p50"]
     assert out["p99"] >= out["p95"]
     assert out["mean"] > 0
-    assert out["median"] == 30.0
 
 
 def test_success_rate_and_error_rate():

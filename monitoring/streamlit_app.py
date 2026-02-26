@@ -110,12 +110,12 @@ with c4:
 
 # p50 / p95 / p99 (ligne)
 st.markdown("**Latence totale (ms)**")
-c50, c95, c99, c_mean, c_median = st.columns(5)
+c50, c95, c99, c_mean= st.columns(4)
 c50.metric("p50", round(stats_total["p50"], 2))
 c95.metric("p95", round(stats_total["p95"], 2))
 c99.metric("p99", round(stats_total["p99"], 2))
 c_mean.metric("mean", round(stats_total["mean"], 2))
-c_median.metric("median", round(stats_total["median"], 2))  
+  
 
 if float(stats_total["p95"]) > float(p95_threshold):
     st.warning(f"Total p95 ({stats_total['p95']:.2f} ms) dépasse le seuil ({p95_threshold} ms).")
@@ -140,36 +140,35 @@ if not timing_stats:
 else:
     # p50/p95/p99 en ligne par composant
     st.markdown("**DB (ms)**")
-    c1, c2, c3,c4,c5 = st.columns(5)
+    c1, c2, c3,c4 = st.columns(4)
     c1.metric("p50", round(timing_stats["db_ms"]["p50"], 2))
     c2.metric("p95", round(timing_stats["db_ms"]["p95"], 2))
     c3.metric("p99", round(timing_stats["db_ms"]["p99"], 2))
     c4.metric("mean", round(timing_stats["db_ms"]["mean"], 2))
-    c5.metric("median", round(timing_stats["db_ms"]["median"], 2))
+
 
     st.markdown("**Validation (ms)**")
-    c1, c2, c3,c4,c5 = st.columns(5)
+    c1, c2, c3,c4 = st.columns(4)
     c1.metric("p50", round(timing_stats["validation_ms"]["p50"], 2))
     c2.metric("p95", round(timing_stats["validation_ms"]["p95"], 2))
     c3.metric("p99", round(timing_stats["validation_ms"]["p99"], 2))
     c4.metric("mean", round(timing_stats["validation_ms"]["mean"], 2))
-    c5.metric("median", round(timing_stats["validation_ms"]["median"], 2))
+
 
     st.markdown("**Inference (ms)**")
-    c1, c2, c3,c4,c5 = st.columns(5)
+    c1, c2, c3,c4 = st.columns(4)
     c1.metric("p50", round(timing_stats["inference_ms"]["p50"], 2))
     c2.metric("p95", round(timing_stats["inference_ms"]["p95"], 2))
     c3.metric("p99", round(timing_stats["inference_ms"]["p99"], 2))
     c4.metric("mean", round(timing_stats["inference_ms"]["mean"], 2))
-    c5.metric("median", round(timing_stats["inference_ms"]["median"], 2))
+
 
     st.markdown("**Total (timing) (ms)**")
-    c1, c2, c3,c4,c5 = st.columns(5)
+    c1, c2, c3,c4 = st.columns(4)
     c1.metric("p50", round(timing_stats["total_ms"]["p50"], 2))
     c2.metric("p95", round(timing_stats["total_ms"]["p95"], 2))
     c3.metric("p99", round(timing_stats["total_ms"]["p99"], 2))
     c4.metric("mean", round(timing_stats["total_ms"]["mean"], 2))
-    c5.metric("median", round(timing_stats["total_ms"]["median"], 2))
     # charts
     st.plotly_chart(hist_latency(timing_df["db_ms"], "DB time (ms)"), use_container_width=True)
     st.plotly_chart(hist_latency(timing_df["inference_ms"], "Inference time (ms)"), use_container_width=True)
