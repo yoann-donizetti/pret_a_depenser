@@ -39,7 +39,6 @@ def series_stats_ms(s: pd.Series) -> Dict[str, float]:
         "p95": float(x.quantile(0.95)),
         "p99": float(x.quantile(0.99)),
         "mean": float(x.mean()),
-        "median": float(x.median()),
     }
 
 
