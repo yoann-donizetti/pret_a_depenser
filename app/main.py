@@ -19,7 +19,10 @@ from app.utils.validation import validate_payload
 from core.db.conn import init_db
 from core.db.repo_features_store import get_features_by_id
 from core.db.repo_prod_requests import insert_prod_request
-
+import os
+import cProfile
+import pstats
+import io
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -110,6 +113,12 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.post("/predict", response_model=PredictResponse)
     async def predict(payload: PredictRequest) -> JSONResponse:
+        profiler = None
+        profile_enabled = os.getenv("ENABLE_PROFILING", "0") == "1"
+
+        if profile_enabled:
+            profiler = cProfile.Profile()
+            profiler.enable()
         t0 = time.time()
         sk_id = payload.SK_ID_CURR
 
@@ -274,6 +283,35 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
             )
 
             return JSONResponse(status_code=500, content=out)
+        finally:
+            if profiler is not None:
+                profiler.disable()
+
+                import pstats
+                import pandas as pd
+
+                stats = pstats.Stats(profiler)
+                stats.strip_dirs()
+                stats.sort_stats("cumtime")
+
+                rows = []
+
+                for func, (cc, nc, tt, ct, callers) in stats.stats.items():
+                    rows.append({
+                        "function": f"{func[0]}:{func[1]}({func[2]})",
+                        "ncalls": nc,
+                        "tottime": tt,
+                        "cumtime": ct,
+                        "percall": tt / nc if nc else 0.0
+                    })
+
+                df_profile = pd.DataFrame(rows)
+                df_profile = df_profile.sort_values("cumtime", ascending=False)
+
+                df_profile.to_csv("reports/profiling_before.csv", index=False)
+
+                print("\n====== PROFILING EXPORTED ======\n")
+                print("report/profiling_results.csv généré.")
 
     return app
 
