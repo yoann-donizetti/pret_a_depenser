@@ -28,7 +28,7 @@ jobs:
 
       - name: Run unit tests + coverage
         run: |
-          pytest --cov=app --cov=core --cov-report=term-missing --cov-fail-under=85
+          pytest --cov=app --cov=core --cov=monitoring --cov-report=term-missing --cov-fail-under=85
 
   docker-build-api:
     name: CI / docker build (API)

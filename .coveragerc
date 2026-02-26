@@ -1,0 +1,9 @@
+[run]
+branch = True
+source =
+    monitoring
+
+omit =
+    monitoring/streamlit_app.py
+    monitoring/__init__.py
+    monitoring/lib/__init__.py
