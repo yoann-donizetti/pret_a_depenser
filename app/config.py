@@ -43,3 +43,4 @@ HF_KEPT_PATH = _env("HF_KEPT_PATH", "api_artifacts/kept_features_top125_nocorr.t
 HF_CAT_PATH = _env("HF_CAT_PATH", "api_artifacts/cat_features_top125_nocorr.txt")
 HF_THRESHOLD_PATH = _env("HF_THRESHOLD_PATH", "api_artifacts/threshold_catboost_top125_nocorr.json")
 
+ENABLE_PROFILING = _env("ENABLE_PROFILING")
