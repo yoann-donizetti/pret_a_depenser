@@ -1,36 +1,46 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import pandas as pd
 
 
-def apply_time_filter(df: pd.DataFrame, window: str) -> pd.DataFrame:
+def apply_time_filter(meta_df: pd.DataFrame, time_window: str) -> pd.DataFrame:
     """
-    window: "all" | "24h" | "7d" | "30d"
-    df doit contenir une colonne "ts" parseable.
+    Filtre sur la colonne 'ts'. Accepte 'all', '24h', '7d', '30d'.
     """
-    if df.empty or "ts" not in df.columns:
-        return df
+    if meta_df is None or meta_df.empty:
+        return meta_df
+    if time_window == "all":
+        return meta_df
 
-    if window == "all":
-        return df
-
-    # Assure datetime
-    ts = pd.to_datetime(df["ts"], errors="coerce", utc=True)
-    out = df.copy()
-    out["ts"] = ts
+    ts = pd.to_datetime(meta_df["ts"], errors="coerce", utc=True)
 
     now = datetime.now(timezone.utc)
-
-    if window == "24h":
+    if time_window == "24h":
         cutoff = now - timedelta(hours=24)
-    elif window == "7d":
+    elif time_window == "7d":
         cutoff = now - timedelta(days=7)
-    elif window == "30d":
+    elif time_window == "30d":
         cutoff = now - timedelta(days=30)
     else:
-        return out
+        return meta_df
 
-    return out[out["ts"].notna() & (out["ts"] >= cutoff)]
+    mask = ts >= cutoff
+    return meta_df.loc[mask].copy()
+
+
+def filter_rows_by_meta_ts(rows: list[dict], meta_df: pd.DataFrame) -> list[dict]:
+    """
+    Refiltre rows pour rester cohérent avec meta filtrée (ts).
+    """
+    if not rows or meta_df is None or meta_df.empty:
+        return []
+
+    kept = set(pd.to_datetime(meta_df["ts"], errors="coerce", utc=True).astype(str).tolist())
+    out = []
+    for r in rows:
+        ts = pd.to_datetime(r.get("ts"), errors="coerce", utc=True)
+        if str(ts) in kept:
+            out.append(r)
+    return out
