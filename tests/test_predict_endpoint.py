@@ -11,7 +11,25 @@ def test_predict_ok_id_only(client, monkeypatch):
     def fake_get_features_by_id(sk_id):
         return {"SK_ID_CURR": sk_id, "EXT_SOURCE_1": 0.5}
 
-    def fake_predict_score(model, payload, kept, cat, threshold):
+    def fake_predict_score(
+        model,
+        payload,
+        kept=None,
+        cat=None,
+        threshold=None,
+        *,
+        kept_features=None,
+        cat_features=None,
+        thread_count=None,
+        **kwargs,
+    ):
+        assert thread_count == 1
+
+        if kept_features is not None:
+            kept = kept_features
+        if cat_features is not None:
+            cat = cat_features
+
         return {
             "SK_ID_CURR": payload["SK_ID_CURR"],
             "proba_default": 0.42,
