@@ -1,4 +1,5 @@
 # app/main.py
+
 from __future__ import annotations
 
 import os
@@ -55,6 +56,7 @@ async def lifespan(_app: FastAPI):
     if source == "hf":
         if not config.HF_REPO_ID:
             raise RuntimeError("HF_REPO_ID manquant (BUNDLE_SOURCE=hf)")
+
         MODEL, KEPT_FEATURES, CAT_FEATURES, THRESHOLD = load_bundle_from_hf(
             repo_id=config.HF_REPO_ID,
             model_path=config.HF_MODEL_PATH,
@@ -71,14 +73,19 @@ async def lifespan(_app: FastAPI):
             threshold_path=config.LOCAL_THRESHOLD_PATH,
         )
 
+    # ✅ Pré-calcul des colonnes catégorielles (évite du boulot à chaque requête)
     CAT_COLS = [c for c in (CAT_FEATURES or []) if c in (KEPT_FEATURES or [])]
+
+    # ✅ init DB (idempotent)
     init_db()
+
     yield
 
 
 def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     app = FastAPI(
         title="Prêt à Dépenser — Credit Scoring API",
+        description="POST /predict avec SK_ID_CURR -> proba défaut + décision + latence. Features lues depuis DB.",
         version="1.0.0",
         lifespan=lifespan if enable_lifespan else None,
     )
@@ -89,8 +96,20 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        t0 = time.time()
         ready = MODEL is not None and KEPT_FEATURES is not None and CAT_FEATURES is not None and THRESHOLD is not None
-        return HealthResponse(status="ok" if ready else "not_ready")
+        status = "ok" if ready else "not_ready"
+        latency_ms = round((time.time() - t0) * 1000, 2)
+
+        _safe_log(
+            {
+                "endpoint": "/health",
+                "status_code": 200,
+                "latency_ms": latency_ms,
+                "outputs": {"status": status},
+            }
+        )
+        return HealthResponse(status=status)
 
     @app.post("/predict", response_model=PredictResponse)
     async def predict(payload: PredictRequest) -> JSONResponse:
@@ -101,22 +120,64 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
         t0 = time.time()
         sk_id = payload.SK_ID_CURR
+
         timing: Dict[str, float] = {}
 
         try:
-            if MODEL is None:
-                return JSONResponse(status_code=503, content={"error": "NOT_READY"})
+            # not ready
+            if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
+                out = {
+                    "error": "NOT_READY",
+                    "message": "API not ready: model/artifacts not loaded yet.",
+                    "latency_ms": round((time.time() - t0) * 1000, 2),
+                }
+                _safe_log(
+                    {
+                        "endpoint": "/predict",
+                        "status_code": 503,
+                        "sk_id_curr": sk_id,
+                        "latency_ms": out["latency_ms"],
+                        "inputs": {"SK_ID_CURR": sk_id},
+                        "error": out["error"],
+                        "message": out["message"],
+                        "outputs": {"timing": timing},
+                    }
+                )
+                return JSONResponse(status_code=503, content=out)
 
-            # DB
+            # 1) fetch features depuis DB
+            t_db = time.time()
             features = get_features_by_id(int(sk_id))
-            if not features:
-                return JSONResponse(status_code=404, content={"error": "NOT_FOUND"})
+            timing["db_ms"] = round((time.time() - t_db) * 1000, 2)
 
+            if not features:
+                out = {
+                    "error": "NOT_FOUND",
+                    "message": f"SK_ID_CURR={sk_id} introuvable dans features_store.",
+                    "latency_ms": round((time.time() - t0) * 1000, 2),
+                }
+                _safe_log(
+                    {
+                        "endpoint": "/predict",
+                        "status_code": 404,
+                        "sk_id_curr": sk_id,
+                        "latency_ms": out["latency_ms"],
+                        "inputs": {"SK_ID_CURR": sk_id},
+                        "error": out["error"],
+                        "message": out["message"],
+                        "outputs": {"timing": timing},
+                    }
+                )
+                return JSONResponse(status_code=404, content=out)
+
+            # 2) assure SK_ID_CURR présent
             features["SK_ID_CURR"] = int(sk_id)
 
-            # Validation (compatible tests: si kept_features vide/None, on skip)
+            # 3) validation (si KEPT_FEATURES vide, on skip)
             kept = KEPT_FEATURES or []
             cats = CAT_FEATURES or []
+
+            t_val = time.time()
             if kept:
                 payload_valid = validate_payload(
                     features,
@@ -126,20 +187,25 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 )
             else:
                 payload_valid = features
+            timing["validation_ms"] = round((time.time() - t_val) * 1000, 2)
 
-            # Threshold safe
+            # 4) predict
             thr = float(THRESHOLD) if THRESHOLD is not None else 0.5
 
+            t_inf = time.time()
+            # ✅ IMPORTANT: appel positionnel -> compat avec monkeypatch des tests
             out = predict_score(
                 MODEL,
                 payload_valid,
-                kept_features=kept,
-                cat_features=(CAT_COLS or []),
-                threshold=thr,
-                thread_count=1,
+                kept,
+                (CAT_COLS or []),
+                thr,
+                thread_count=1,  # ✅ on garde l'opti
             )
+            timing["inference_ms"] = round((time.time() - t_inf) * 1000, 2)
 
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
+            timing["total_ms"] = out["latency_ms"]
 
             _safe_log(
                 {
@@ -147,12 +213,13 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "status_code": 200,
                     "sk_id_curr": sk_id,
                     "latency_ms": out["latency_ms"],
-                    "inputs": {"SK_ID_CURR": sk_id},
+                    "inputs": payload_valid,
                     "outputs": {
                         "proba_default": out.get("proba_default"),
                         "score": out.get("score"),
                         "decision": out.get("decision"),
                         "threshold": out.get("threshold"),
+                        "timing": timing,
                     },
                 }
             )
@@ -162,6 +229,8 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
         except ApiError as e:
             out = e.to_dict()
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
+            timing["total_ms"] = out["latency_ms"]
+
             _safe_log(
                 {
                     "endpoint": "/predict",
@@ -171,25 +240,31 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "inputs": {"SK_ID_CURR": sk_id},
                     "error": out.get("error"),
                     "message": out.get("message"),
-                    "outputs": {"details": out.get("details")},
+                    "outputs": {"details": out.get("details"), "timing": timing},
                 }
             )
             return JSONResponse(status_code=e.http_status, content=out)
 
         except Exception as e:
-            out = {"error": "INTERNAL_ERROR", "message": str(e)}
+            out = {
+                "error": "INTERNAL_ERROR",
+                "message": str(e),
+                "latency_ms": round((time.time() - t0) * 1000, 2),
+            }
+            timing["total_ms"] = out["latency_ms"]
+
             _safe_log(
                 {
                     "endpoint": "/predict",
                     "status_code": 500,
                     "sk_id_curr": sk_id,
-                    "latency_ms": round((time.time() - t0) * 1000, 2),
+                    "latency_ms": out["latency_ms"],
                     "inputs": {"SK_ID_CURR": sk_id},
                     "error": out["error"],
                     "message": out["message"],
+                    "outputs": {"timing": timing},
                 }
             )
-            print("PREDICT ERROR:", repr(e))
             return JSONResponse(status_code=500, content=out)
 
         finally:
