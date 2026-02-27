@@ -11,7 +11,27 @@ def test_db_logging_failure_does_not_break(client, monkeypatch):
     def fake_get_features_by_id(sk_id):
         return {"SK_ID_CURR": sk_id, "EXT_SOURCE_1": 0.5}
 
-    def fake_predict_score(model, payload, kept, cat, threshold):
+    def fake_predict_score(
+        model,
+        payload,
+        kept=None,
+        cat=None,
+        threshold=None,
+        *,
+        kept_features=None,
+        cat_features=None,
+        thread_count=None,
+        **kwargs,
+    ):
+        # strict: on garde l'opti
+        assert thread_count == 1
+
+        # compat: ton code peut passer kept_features/cat_features en keyword
+        if kept_features is not None:
+            kept = kept_features
+        if cat_features is not None:
+            cat = cat_features
+
         return {
             "SK_ID_CURR": payload["SK_ID_CURR"],
             "proba_default": 0.42,

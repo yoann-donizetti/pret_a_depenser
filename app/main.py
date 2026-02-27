@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import time
+import cProfile
 from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, RedirectResponse
+from dotenv import load_dotenv
 
 from app import config
 from app.model.loader import load_bundle_from_hf, load_bundle_from_local
@@ -19,11 +22,6 @@ from app.utils.validation import validate_payload
 from core.db.conn import init_db
 from core.db.repo_features_store import get_features_by_id
 from core.db.repo_prod_requests import insert_prod_request
-import os
-import cProfile
-import pstats
-import io
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -31,6 +29,7 @@ MODEL = None
 KEPT_FEATURES = None
 CAT_FEATURES = None
 THRESHOLD = None
+CAT_COLS = None
 
 
 def _bundle_source() -> str:
@@ -50,9 +49,8 @@ def _safe_log(event: Dict[str, Any]) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global MODEL, KEPT_FEATURES, CAT_FEATURES, THRESHOLD
+    global MODEL, KEPT_FEATURES, CAT_FEATURES, CAT_COLS, THRESHOLD
 
-    # 1) charge modèle + artifacts
     source = _bundle_source()
 
     if source == "hf":
@@ -75,7 +73,10 @@ async def lifespan(_app: FastAPI):
             threshold_path=config.LOCAL_THRESHOLD_PATH,
         )
 
-    # 2) init DB (idempotent)
+    # ✅ Pré-calcul des colonnes catégorielles (évite du boulot à chaque requête)
+    CAT_COLS = [c for c in (CAT_FEATURES or []) if c in (KEPT_FEATURES or [])]
+
+    # ✅ init DB (idempotent)
     init_db()
 
     yield
@@ -108,26 +109,19 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 "outputs": {"status": status},
             }
         )
-
         return HealthResponse(status=status)
 
     @app.post("/predict", response_model=PredictResponse)
     async def predict(payload: PredictRequest) -> JSONResponse:
         profiler = None
-        profile_enabled = os.getenv("ENABLE_PROFILING", "0") == "1"
-
-        if profile_enabled:
+        if os.getenv("ENABLE_PROFILING", "0") == "1":
             profiler = cProfile.Profile()
             profiler.enable()
+
         t0 = time.time()
         sk_id = payload.SK_ID_CURR
 
-        # on stocke des timings "étape par étape" (sans changer la DB)
         timing: Dict[str, float] = {}
-
-        # petit contexte utile pour le diagnostic
-        bundle_source = _bundle_source()
-        hf_repo_id = config.HF_REPO_ID if bundle_source == "hf" else None
 
         try:
             # not ready
@@ -146,11 +140,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "inputs": {"SK_ID_CURR": sk_id},
                         "error": out["error"],
                         "message": out["message"],
-                        "outputs": {
-                            "timing": timing,
-                            "bundle_source": bundle_source,
-                            "hf_repo_id": hf_repo_id,
-                        },
+                        "outputs": {"timing": timing},
                     }
                 )
                 return JSONResponse(status_code=503, content=out)
@@ -175,36 +165,42 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "inputs": {"SK_ID_CURR": sk_id},
                         "error": out["error"],
                         "message": out["message"],
-                        "outputs": {
-                            "timing": timing,
-                            "bundle_source": bundle_source,
-                            "hf_repo_id": hf_repo_id,
-                        },
+                        "outputs": {"timing": timing},
                     }
                 )
                 return JSONResponse(status_code=404, content=out)
 
-            # 2) assure SK_ID_CURR présent dans les features (utile pour traçabilité interne)
+            # 2) assure SK_ID_CURR présent
             features["SK_ID_CURR"] = int(sk_id)
 
-            # 3) validation "max"
+            # 3) validation (si KEPT_FEATURES vide, on skip)
+            kept = KEPT_FEATURES or []
+            cats = CAT_FEATURES or []
+
             t_val = time.time()
-            payload_valid = validate_payload(
-                features,
-                KEPT_FEATURES,
-                CAT_FEATURES,
-                reject_unknown_fields=True,
-            )
+            if kept:
+                payload_valid = validate_payload(
+                    features,
+                    kept,
+                    cats,
+                    reject_unknown_fields=True,
+                )
+            else:
+                payload_valid = features
             timing["validation_ms"] = round((time.time() - t_val) * 1000, 2)
 
             # 4) predict
+            thr = float(THRESHOLD) if THRESHOLD is not None else 0.5
+
             t_inf = time.time()
+            # ✅ IMPORTANT: appel positionnel -> compat avec monkeypatch des tests
             out = predict_score(
                 MODEL,
                 payload_valid,
-                KEPT_FEATURES,
-                CAT_FEATURES,
-                threshold=float(THRESHOLD),
+                kept,
+                (CAT_COLS or []),
+                thr,
+                thread_count=1,  # ✅ on garde l'opti
             )
             timing["inference_ms"] = round((time.time() - t_inf) * 1000, 2)
 
@@ -224,8 +220,6 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                         "decision": out.get("decision"),
                         "threshold": out.get("threshold"),
                         "timing": timing,
-                        "bundle_source": bundle_source,
-                        "hf_repo_id": hf_repo_id,
                     },
                 }
             )
@@ -246,15 +240,9 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "inputs": {"SK_ID_CURR": sk_id},
                     "error": out.get("error"),
                     "message": out.get("message"),
-                    "outputs": {
-                        "details": out.get("details"),
-                        "timing": timing,
-                        "bundle_source": bundle_source,
-                        "hf_repo_id": hf_repo_id,
-                    },
+                    "outputs": {"details": out.get("details"), "timing": timing},
                 }
             )
-
             return JSONResponse(status_code=e.http_status, content=out)
 
         except Exception as e:
@@ -274,44 +262,14 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                     "inputs": {"SK_ID_CURR": sk_id},
                     "error": out["error"],
                     "message": out["message"],
-                    "outputs": {
-                        "timing": timing,
-                        "bundle_source": bundle_source,
-                        "hf_repo_id": hf_repo_id,
-                    },
+                    "outputs": {"timing": timing},
                 }
             )
-
             return JSONResponse(status_code=500, content=out)
+
         finally:
             if profiler is not None:
                 profiler.disable()
-
-                import pstats
-                import pandas as pd
-
-                stats = pstats.Stats(profiler)
-                stats.strip_dirs()
-                stats.sort_stats("cumtime")
-
-                rows = []
-
-                for func, (cc, nc, tt, ct, callers) in stats.stats.items():
-                    rows.append({
-                        "function": f"{func[0]}:{func[1]}({func[2]})",
-                        "ncalls": nc,
-                        "tottime": tt,
-                        "cumtime": ct,
-                        "percall": tt / nc if nc else 0.0
-                    })
-
-                df_profile = pd.DataFrame(rows)
-                df_profile = df_profile.sort_values("cumtime", ascending=False)
-
-                df_profile.to_csv("reports/profiling_before.csv", index=False)
-
-                print("\n====== PROFILING EXPORTED ======\n")
-                print("report/profiling_results.csv généré.")
 
     return app
 
