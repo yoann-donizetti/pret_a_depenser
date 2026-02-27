@@ -9,7 +9,7 @@ PSI_THRESHOLDS = {
 
 DEFAULTS = {
     "endpoint": "/predict",
-    "limit": 1000,
+    "limit": 0,
     "p95_threshold_ms": 200,
     "drift_threshold": 0.25,
     "max_limit_fetch": 1_000_000,
