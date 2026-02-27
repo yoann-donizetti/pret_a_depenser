@@ -598,6 +598,47 @@ streamlit run monitoring/streamlit_app.py
 
 ---
 
+## Load Testing
+
+Un test de charge simulé a été réalisé afin d’évaluer la stabilité sous contrainte.(2000 requetes)
+### Exécution locale
+```bash
+python scripts.simulate_requests --base-url "http://127.0.0.1:8000" --csv examples/X_api.csv --n 2000
+```
+### Exécution HF
+```bash
+python scripts.simulate_requests --base-url "http://127.0.0.1:8000" --csv examples/X_api.csv --n 2000
+```
+
+## Optimisations post-déploiement
+### Identification des goulots d’étranglement
+
+Les métriques issues du monitoring (*table prod_requests*) ont montré que la latence provenait principalement de :
+- Conversion payload → pandas.DataFrame
+- Casting répété des variables catégorielles
+- Overhead Python inutile pour une seule ligne d’inférence
+
+Profiling réalisé via cProfile.
+
+### Optimisations mises en œuvre
+- Suppression complète de pandas côté inference
+- Construction directe du vecteur d’entrée via build_row (liste Python native)
+- Pré-calcul des colonnes catégorielles au démarrage de l’API
+- thread_count=1 pour stabiliser la latence en environnement CPU partagé (HF Spaces)
+
+### Résultats mesurés
+
+| Métrique            | Avant | Après | Gain   |
+|---------------------|-------|-------|--------|
+| p50 latency (ms)    | 9,64ms   | 2,85ms    | - 70,44%   |
+| p95 latency (ms)    | 11,22ms    | 3,97ms  | - 64,6%   |
+| inference_p50 (ms)   | 7,56ms    | 1,03   | --86,4%   |
+ inference_p96 (ms)   | 8,86   | 1,57    | -82,3%   |
+
+
+Latence divisée par ~3 sans modification du modèle.
+Les optimisations portent uniquement sur la couche d’inférence API.
+
 ## Résultat final
 
 Ce projet fournit une **architecture MLOps complète** avec :
