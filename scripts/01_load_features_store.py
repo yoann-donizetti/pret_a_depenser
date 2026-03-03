@@ -1,3 +1,8 @@
+"""
+Script d'insertion en base des features clients à partir d'un CSV API-ready.
+Pour chaque ligne du CSV, insère ou met à jour les features dans la table features_store.
+Gère la migration SQL si besoin.
+"""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +21,10 @@ MIGRATIONS_DIR = PROJECT_ROOT / "core" / "db" / "migrations"
 
 
 def run_migration(conn: psycopg.Connection) -> None:
+    """
+    Exécute la migration SQL pour initialiser la table features_store si besoin.
+    Lève une FileNotFoundError si le fichier de migration est absent.
+    """
     sql_path = MIGRATIONS_DIR / "002_init_features_store.sql"
     if not sql_path.exists():
         raise FileNotFoundError(f"Migration introuvable: {sql_path}")
@@ -23,6 +32,9 @@ def run_migration(conn: psycopg.Connection) -> None:
 
 
 def to_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Transforme une ligne du CSV en dictionnaire prêt à être inséré (gère les NaN et types numpy).
+    """
     out: Dict[str, Any] = {}
     for k, v in row.items():
         if pd.isna(v):
@@ -33,6 +45,12 @@ def to_payload(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def main() -> None:
+    """
+    Point d'entrée principal du script :
+    - Charge un CSV API-ready
+    - Exécute la migration si besoin
+    - Insère ou met à jour les features en base par batch
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True, help="CSV API-ready (ex: data/processed/X_api.csv)")
     ap.add_argument("--chunksize", type=int, default=2000)
@@ -41,10 +59,12 @@ def main() -> None:
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL manquante (core.config).")
 
+    # 1) Vérification et chargement du CSV
     csv_path = Path(args.csv)
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV introuvable: {csv_path}")
 
+    # 2) Préparation de la requête SQL d'upsert
     upsert_sql = """
     INSERT INTO features_store (sk_id_curr, data)
     VALUES (%s, %s::jsonb)
@@ -54,6 +74,7 @@ def main() -> None:
     """
 
     inserted = 0
+    # 3) Connexion à la base, migration et insertion par batch
     with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
         run_migration(conn)
 
@@ -72,6 +93,7 @@ def main() -> None:
 
             inserted += len(rows)
 
+    # 4) Affichage du résultat
     print(f"OK: {inserted} lignes upsert dans features_store.")
 
 

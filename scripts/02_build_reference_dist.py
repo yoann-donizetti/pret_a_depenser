@@ -1,3 +1,7 @@
+"""
+Script de génération et d'insertion des distributions de référence (ref_feature_dist) en base à partir d'un CSV.
+Pour chaque feature, calcule la distribution de référence (numérique ou catégorielle) et l'insère/maj en base.
+"""
 from __future__ import annotations
 
 import argparse
@@ -18,12 +22,20 @@ SQL_DIR = PROJECT_ROOT / "core" / "db" / "sql"
 EXCLUDED_FEATURES = {"SK_ID_CURR"}
 
 def load_sql(path: Path) -> str:
+    """
+    Charge le contenu d'un fichier SQL depuis le disque.
+    Lève une FileNotFoundError si le fichier n'existe pas.
+    """
     if not path.exists():
         raise FileNotFoundError(f"SQL file not found: {path}")
     return path.read_text(encoding="utf-8")
 
 
 def infer_kind(s: pd.Series) -> str:
+    """
+    Détermine le type d'une feature (numérique ou catégorielle) à partir d'une série pandas.
+    Retourne 'numeric' ou 'categorical'.
+    """
     if pd.api.types.is_bool_dtype(s) or str(s.dtype).lower() == "boolean":
         return "numeric"
     if s.dtype == "object" or pd.api.types.is_string_dtype(s):
@@ -32,6 +44,10 @@ def infer_kind(s: pd.Series) -> str:
 
 
 def numeric_ref_dist(s: pd.Series, bins: int):
+    """
+    Calcule la distribution de référence pour une feature numérique.
+    Retourne : (bins_json, dist_json, n_ref)
+    """
     if pd.api.types.is_bool_dtype(s) or str(s.dtype).lower() == "boolean":
         s = s.astype("Int64")
 
@@ -73,6 +89,10 @@ def numeric_ref_dist(s: pd.Series, bins: int):
 
 
 def categorical_ref_dist(s: pd.Series, topk: int):
+    """
+    Calcule la distribution de référence pour une feature catégorielle.
+    Retourne : (bins_json, dist_json, n_ref)
+    """
     x = s.fillna("__MISSING__").astype(str)
     n = int(len(x))
 
@@ -91,6 +111,12 @@ def categorical_ref_dist(s: pd.Series, topk: int):
 
 
 def main() -> None:
+    """
+    Point d'entrée principal du script :
+    - Charge un CSV de données de référence
+    - Calcule la distribution de chaque feature (numérique/catégorielle)
+    - Insère ou met à jour les distributions en base
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True)
     ap.add_argument("--bins", type=int, default=10)
@@ -100,11 +126,14 @@ def main() -> None:
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL manquante (core.config).")
 
+    # 1) Chargement du CSV de données de référence
     df = pd.read_csv(Path(args.csv))
 
+    # 2) Chargement des requêtes SQL nécessaires
     migration_sql = load_sql(MIGRATIONS_DIR / "003_init_ref_feature_dist.sql")
     upsert_sql = load_sql(SQL_DIR / "ref_feature_dist_upsert.sql")
 
+    # 3) Calcul des distributions de référence pour chaque feature
     rows = []
     for col in df.columns:
         if col in EXCLUDED_FEATURES:
@@ -125,11 +154,13 @@ def main() -> None:
             }
         )
 
+    # 4) Insertion ou mise à jour des distributions en base
     with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
         conn.execute(migration_sql)
         with conn.cursor() as cur:
             cur.executemany(upsert_sql, rows)
 
+    # 5) Affichage du résultat
     print(f"OK: {len(rows)} features insérées/mises à jour.")
 
 
