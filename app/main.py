@@ -1,4 +1,9 @@
+
 # app/main.py
+#
+# Point d'entrée principal de l'API FastAPI pour le scoring de crédit.
+# Gère le chargement du modèle, la configuration, les endpoints /health et /predict,
+# ainsi que la gestion des logs et de la base de données.
 
 from __future__ import annotations
 
@@ -33,6 +38,11 @@ CAT_COLS = None
 
 
 def _bundle_source() -> str:
+    """
+    Détermine la source du bundle modèle à charger (local ou HuggingFace).
+    Retourne 'local' ou 'hf' selon la configuration.
+    """
+    # Détermine la source du bundle modèle (local ou HuggingFace)
     src = (config.BUNDLE_SOURCE or "auto").strip().lower()
     if src in ("local", "hf"):
         return src
@@ -40,6 +50,13 @@ def _bundle_source() -> str:
 
 
 def _safe_log(event: Dict[str, Any]) -> None:
+    """
+    Effectue un log sécurisé d'un événement de requête en base de données.
+    Ne lève jamais d'exception pour ne pas interrompre l'API.
+    Paramètre :
+        event (dict) : Dictionnaire des informations à logger.
+    """
+    # Log sécurisé : n'interrompt jamais l'API même en cas d'erreur de log
     """Le logging ne doit jamais casser l'API."""
     try:
         insert_prod_request(event)
@@ -49,6 +66,14 @@ def _safe_log(event: Dict[str, Any]) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """
+    Gère le cycle de vie de l'application FastAPI :
+    - Charge le modèle et les artefacts au démarrage
+    - Initialise la base de données
+    """
+    # Gestion du cycle de vie de l'application :
+    # - Chargement du modèle et des artefacts
+    # - Initialisation de la base de données
     global MODEL, KEPT_FEATURES, CAT_FEATURES, CAT_COLS, THRESHOLD
 
     source = _bundle_source()
@@ -83,6 +108,14 @@ async def lifespan(_app: FastAPI):
 
 
 def create_app(*, enable_lifespan: bool = True) -> FastAPI:
+    """
+    Crée et configure l'application FastAPI avec ses endpoints et sa documentation.
+    Paramètre :
+        enable_lifespan (bool) : Active ou non la gestion du cycle de vie.
+    Retour :
+        Instance FastAPI prête à l'emploi.
+    """
+    # Crée et configure l'application FastAPI avec endpoints et documentation
     app = FastAPI(
         title="Prêt à Dépenser — Credit Scoring API",
         description="POST /predict avec SK_ID_CURR -> proba défaut + décision + latence. Features lues depuis DB.",
@@ -92,10 +125,19 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.get("/")
     def root():
+        """
+        Redirige la racine de l'API vers la documentation Swagger (/docs).
+        """
+        # Redirige vers la documentation Swagger
         return RedirectResponse(url="/docs")
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        """
+        Endpoint de vérification de santé de l'API.
+        Retourne un statut 'ok' si le modèle et les artefacts sont chargés.
+        """
+        # Endpoint de vérification de santé de l'API
         t0 = time.time()
         ready = MODEL is not None and KEPT_FEATURES is not None and CAT_FEATURES is not None and THRESHOLD is not None
         status = "ok" if ready else "not_ready"
@@ -113,9 +155,18 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
 
     @app.post("/predict", response_model=PredictResponse)
     async def predict(payload: PredictRequest) -> JSONResponse:
+        """
+        Endpoint principal de prédiction :
+        - Reçoit un identifiant client (SK_ID_CURR)
+        - Récupère les features associées
+        - Valide et prépare les données
+        - Effectue la prédiction avec le modèle
+        - Retourne la probabilité de défaut, la décision et la latence
+        """
+        # Endpoint principal de prédiction : reçoit un SK_ID_CURR, retourne la proba de défaut et la décision
         profiler = None
         if os.getenv("ENABLE_PROFILING", "0") == "1":
-            profiler = cProfile.Profile()
+            profiler = cProfile.Profile()  # Profilage optionnel
             profiler.enable()
 
         t0 = time.time()
@@ -124,8 +175,9 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
         timing: Dict[str, float] = {}
 
         try:
-            # not ready
+            # 1. Vérifie que le modèle et les artefacts sont chargés
             if MODEL is None or KEPT_FEATURES is None or CAT_FEATURES is None or THRESHOLD is None:
+                # API non prête
                 out = {
                     "error": "NOT_READY",
                     "message": "API not ready: model/artifacts not loaded yet.",
@@ -145,12 +197,13 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 )
                 return JSONResponse(status_code=503, content=out)
 
-            # 1) fetch features depuis DB
+            # 2. Récupère les features du client depuis la base
             t_db = time.time()
             features = get_features_by_id(int(sk_id))
             timing["db_ms"] = round((time.time() - t_db) * 1000, 2)
 
             if not features:
+                # Client non trouvé
                 out = {
                     "error": "NOT_FOUND",
                     "message": f"SK_ID_CURR={sk_id} introuvable dans features_store.",
@@ -170,10 +223,10 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 )
                 return JSONResponse(status_code=404, content=out)
 
-            # 2) assure SK_ID_CURR présent
+            # 3. Ajoute SK_ID_CURR dans les features
             features["SK_ID_CURR"] = int(sk_id)
 
-            # 3) validation (si KEPT_FEATURES vide, on skip)
+            # 4. Valide les features (si KEPT_FEATURES défini)
             kept = KEPT_FEATURES or []
             cats = CAT_FEATURES or []
 
@@ -189,18 +242,18 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
                 payload_valid = features
             timing["validation_ms"] = round((time.time() - t_val) * 1000, 2)
 
-            # 4) predict
+            # 5. Prédiction
             thr = float(THRESHOLD) if THRESHOLD is not None else 0.5
 
             t_inf = time.time()
-            # ✅ IMPORTANT: appel positionnel -> compat avec monkeypatch des tests
+            # Appel du modèle pour obtenir la prédiction
             out = predict_score(
                 MODEL,
                 payload_valid,
                 kept,
                 (CAT_COLS or []),
                 thr,
-                thread_count=1,  # ✅ on garde l'opti
+                thread_count=1,  # Optimisation mono-thread
             )
             timing["inference_ms"] = round((time.time() - t_inf) * 1000, 2)
 
@@ -227,6 +280,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
             return JSONResponse(status_code=200, content=out)
 
         except ApiError as e:
+            # Gestion des erreurs API personnalisées
             out = e.to_dict()
             out["latency_ms"] = round((time.time() - t0) * 1000, 2)
             timing["total_ms"] = out["latency_ms"]
@@ -246,6 +300,7 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
             return JSONResponse(status_code=e.http_status, content=out)
 
         except Exception as e:
+            # Gestion des erreurs internes inattendues
             out = {
                 "error": "INTERNAL_ERROR",
                 "message": str(e),
@@ -274,4 +329,6 @@ def create_app(*, enable_lifespan: bool = True) -> FastAPI:
     return app
 
 
+
+# Instancie l'application FastAPI
 app = create_app(enable_lifespan=True)

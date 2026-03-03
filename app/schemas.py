@@ -1,3 +1,8 @@
+"""
+Schémas Pydantic pour la validation et la documentation des requêtes/réponses de l'API.
+ - Décrit les formats attendus pour la prédiction et le healthcheck
+ - Fournit des exemples pour la documentation Swagger
+"""
 # app/schemas.py
 from __future__ import annotations
 
@@ -20,8 +25,8 @@ except Exception:
 
 class PredictRequest(BaseModel):
     """
-    Mode "Feature Store DB":
-    L'API reçoit uniquement SK_ID_CURR, puis récupère les 125 features depuis la DB.
+    Requête de prédiction :
+    L'API reçoit uniquement SK_ID_CURR, puis va chercher les features en base.
     """
     model_config = ConfigDict(extra="forbid", json_schema_extra={"example": _EXAMPLE})
 
@@ -29,6 +34,10 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
+    """
+    Réponse de l'API pour une prédiction.
+    Contient la probabilité, le score, la décision, le seuil et la latence.
+    """
     SK_ID_CURR: Optional[int] = None
     proba_default: float
     score: int
@@ -38,4 +47,7 @@ class PredictResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    """
+    Réponse pour l'endpoint de healthcheck.
+    """
     status: Literal["ok", "not_ready"]

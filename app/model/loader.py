@@ -1,3 +1,13 @@
+
+"""
+Module de chargement du modèle CatBoost et de ses artefacts associés (features, catégories, seuil) depuis le disque local ou HuggingFace Hub.
+
+Permet de charger facilement un modèle entraîné, la liste des features conservées, des features catégorielles et le seuil de décision, pour une utilisation en production ou en évaluation.
+fonctions principales :
+    - load_bundle_from_local: Charge le modèle et ses artefacts depuis des fichiers locaux.     
+    - load_bundle_from_hf: Charge le modèle et ses artefacts depuis un dépôt HuggingFace Hub.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,6 +20,17 @@ from app.utils.io import load_txt_list, parse_json
 
 
 def _load_catboost_from_file(model_file: Path) -> CatBoostClassifier:
+    """
+    Charge un modèle CatBoostClassifier à partir d'un fichier local.
+
+    Args:
+        model_file (Path): Chemin du fichier modèle CatBoost.
+
+    Returns:
+        CatBoostClassifier: Modèle CatBoost chargé.
+    
+
+    """
     model = CatBoostClassifier()
     model.load_model(str(model_file))
     return model
@@ -22,6 +43,22 @@ def load_bundle_from_local(
     cat_path: Path,
     threshold_path: Path,
 ) -> Tuple[CatBoostClassifier, List[str], List[str], float]:
+    """
+    Charge le modèle CatBoost et ses artefacts (features, catégories, seuil) depuis des fichiers locaux.
+
+    Args:
+        model_path (Path): Chemin du fichier modèle.
+        kept_path (Path): Chemin du fichier des features conservées.
+        cat_path (Path): Chemin du fichier des features catégorielles.
+        threshold_path (Path): Chemin du fichier du seuil de décision.
+
+    Returns:
+        Tuple[CatBoostClassifier, List[str], List[str], float]:
+            - Modèle CatBoost
+            - Liste des features conservées
+            - Liste des features catégorielles
+            - Seuil de décision (float)
+    """
     model_file = Path(model_path)
     kept_file = Path(kept_path)
     cat_file = Path(cat_path)
@@ -55,6 +92,24 @@ def load_bundle_from_hf(
     threshold_path: str,
     token: str | None = None,
 ) -> Tuple[CatBoostClassifier, List[str], List[str], float]:
+    """
+    Charge le modèle CatBoost et ses artefacts depuis un dépôt HuggingFace Hub.
+
+    Args:
+        repo_id (str): Identifiant du repo HuggingFace.
+        model_path (str): Nom du fichier modèle dans le repo.
+        kept_path (str): Nom du fichier des features conservées dans le repo.
+        cat_path (str): Nom du fichier des features catégorielles dans le repo.
+        threshold_path (str): Nom du fichier du seuil de décision dans le repo.
+        token (str | None): Jeton d'accès HuggingFace (optionnel).
+
+    Returns:
+        Tuple[CatBoostClassifier, List[str], List[str], float]:
+            - Modèle CatBoost
+            - Liste des features conservées
+            - Liste des features catégorielles
+            - Seuil de décision (float)
+    """
     model_file = Path(hf_hub_download(repo_id=repo_id, filename=model_path, token=token))
     kept_file = Path(hf_hub_download(repo_id=repo_id, filename=kept_path, token=token))
     cat_file = Path(hf_hub_download(repo_id=repo_id, filename=cat_path, token=token))
