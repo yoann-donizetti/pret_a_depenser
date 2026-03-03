@@ -1,3 +1,8 @@
+"""
+Gestion de la connexion à la base de données PostgreSQL et application des migrations SQL.
+ - Fournit une connexion unique réutilisable
+ - Applique les migrations au démarrage de l'application
+"""
 from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
@@ -11,6 +16,10 @@ _CONN: Optional[psycopg.Connection] = None
 
 
 def get_conn() -> Optional[psycopg.Connection]:
+    """
+    Retourne une connexion PostgreSQL unique (singleton).
+    Lit l'URL de connexion dans la variable d'environnement DATABASE_URL.
+    """
     global _CONN
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
@@ -23,6 +32,9 @@ def get_conn() -> Optional[psycopg.Connection]:
 
 
 def _apply_migrations(conn: psycopg.Connection) -> None:
+    """
+    Applique toutes les migrations SQL présentes dans le dossier migrations/.
+    """
     mig_dir = Path(__file__).resolve().parent / "migrations"
     files = sorted(mig_dir.glob("*.sql"))
     if not files:
@@ -35,8 +47,8 @@ def _apply_migrations(conn: psycopg.Connection) -> None:
 
 def init_db() -> None:
     """
-    Applique les migrations SQL (idempotent).
-    Si DATABASE_URL absent => no-op (API reste UP).
+    Initialise la base de données : applique les migrations si possible.
+    Si DATABASE_URL est absent, ne fait rien (API reste UP).
     """
     conn = get_conn()
     if conn is None:

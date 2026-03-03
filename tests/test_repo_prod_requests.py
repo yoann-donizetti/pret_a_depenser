@@ -1,13 +1,24 @@
+
+"""
+Tests unitaires pour le module repo_prod_requests (insertion et récupération des logs de requêtes en base).
+Vérifie les cas de connexion absente, d'insertion, de mapping et d'ordre chronologique.
+"""
 from unittest.mock import Mock
 import core.db.repo_prod_requests as repo_pr
 
 
 def test_insert_prod_request_no_conn(monkeypatch):
+    """
+    Vérifie que insert_prod_request ne plante pas si la connexion à la base est absente.
+    """
     monkeypatch.setattr(repo_pr, "get_conn", lambda: None)
     repo_pr.insert_prod_request({"endpoint": "/predict"})  # ne doit pas crash
 
 
 def test_insert_prod_request_executes(monkeypatch):
+    """
+    Vérifie que insert_prod_request exécute bien la requête SQL attendue avec les bons paramètres.
+    """
     fake_conn = Mock()
     monkeypatch.setattr(repo_pr, "get_conn", lambda: fake_conn)
 
@@ -38,12 +49,18 @@ def test_insert_prod_request_executes(monkeypatch):
 
 
 def test_select_prod_requests_no_conn(monkeypatch):
+    """
+    Vérifie que select_prod_requests retourne une liste vide si la connexion à la base est absente.
+    """
     monkeypatch.setattr(repo_pr, "get_conn", lambda: None)
     out = repo_pr.select_prod_requests(endpoint="/predict", limit=10)
     assert out == []
 
 
 def test_select_prod_requests_maps_rows_and_chrono_order(monkeypatch):
+    """
+    Vérifie que select_prod_requests mappe correctement les lignes SQL en dictionnaires et respecte l'ordre chronologique.
+    """
     fake_conn = Mock()
 
     # IMPORTANT: le repo fait out.reverse() pour remettre en ordre chrono

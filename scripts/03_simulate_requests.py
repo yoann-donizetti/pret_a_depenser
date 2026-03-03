@@ -1,3 +1,7 @@
+"""
+Script de simulation de requêtes API pour tester l'endpoint /predict.
+Envoie en série des requêtes POST à partir d'un CSV de SK_ID_CURR, mesure la latence et compte les succès/échecs.
+"""
 from __future__ import annotations
 
 import argparse
@@ -10,6 +14,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def main():
+    """
+    Point d'entrée principal du script :
+    - Charge un CSV de SK_ID_CURR
+    - Envoie des requêtes POST à l'API /predict
+    - Affiche les erreurs, la latence et le bilan final
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--csv", default="examples/X_api.csv")
@@ -19,6 +29,7 @@ def main():
     parser.add_argument("--endpoint", default="/predict")
     args = parser.parse_args()
 
+    # 1) Chargement du CSV de SK_ID_CURR
     csv_path = Path(args.csv)
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV introuvable: {csv_path}")
@@ -27,12 +38,14 @@ def main():
     if "SK_ID_CURR" not in df.columns:
         raise ValueError("Le CSV doit contenir la colonne SK_ID_CURR.")
 
+    # 2) Préparation des paramètres de simulation
     n = min(args.n, len(df))
     url = f"{args.base_url.rstrip('/')}{args.endpoint}"
 
     ok = 0
     ko = 0
 
+    # 3) Boucle d'envoi des requêtes POST
     for i in range(n):
         sk_id = int(df.iloc[i]["SK_ID_CURR"])
         payload = {"SK_ID_CURR": sk_id}
@@ -56,6 +69,7 @@ def main():
         if args.sleep > 0:
             time.sleep(args.sleep)
 
+    # 4) Affichage du bilan final
     print(f"Done. OK={ok}  KO={ko}")
 
 

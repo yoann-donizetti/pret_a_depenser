@@ -1,13 +1,24 @@
+
+"""
+Test unitaire pour vérifier que l'échec du logging en base ne casse pas l'API.
+Simule un échec de la fonction insert_prod_request lors d'une requête /predict.
+"""
 # tests/test_logging.py
 import app.main as main
 
 def _force_ready():
+    """
+    Force l'état 'prêt' de l'API pour les tests en initialisant les variables globales nécessaires.
+    """
     main.MODEL = object()
     main.KEPT_FEATURES = ["SK_ID_CURR", "EXT_SOURCE_1"]
     main.CAT_FEATURES = []
     main.THRESHOLD = 0.5
 
 def test_db_logging_failure_does_not_break(client, monkeypatch):
+    """
+    Vérifie qu'une erreur lors du logging en base (insert_prod_request) ne fait pas échouer l'endpoint /predict.
+    """
     def fake_get_features_by_id(sk_id):
         return {"SK_ID_CURR": sk_id, "EXT_SOURCE_1": 0.5}
 
@@ -23,6 +34,10 @@ def test_db_logging_failure_does_not_break(client, monkeypatch):
         thread_count=None,
         **kwargs,
     ):
+        """
+        Fonction factice qui simule le comportement de predict_score pour les tests.
+        Retourne une prédiction fixe et vérifie que l'appel se fait bien en mono-thread.
+        """
         # strict: on garde l'opti
         assert thread_count == 1
 
@@ -41,6 +56,10 @@ def test_db_logging_failure_does_not_break(client, monkeypatch):
         }
 
     def boom(_event):
+        """
+        Fonction factice qui simule un échec lors du logging en base (insert_prod_request).
+        Lève systématiquement une exception pour tester la robustesse de l'API.
+        """
         raise RuntimeError("db down")
 
     monkeypatch.setattr(main, "get_features_by_id", fake_get_features_by_id, raising=True)

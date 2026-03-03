@@ -11,11 +11,7 @@ CREATE TABLE IF NOT EXISTS prod_requests (
     message TEXT
 );
 
--- Migrations safe
-ALTER TABLE prod_requests ADD COLUMN IF NOT EXISTS inputs JSONB;
-ALTER TABLE prod_requests ADD COLUMN IF NOT EXISTS outputs JSONB;
-ALTER TABLE prod_requests ADD COLUMN IF NOT EXISTS error TEXT;
-ALTER TABLE prod_requests ADD COLUMN IF NOT EXISTS message TEXT;
+
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_prod_requests_ts ON prod_requests(ts);

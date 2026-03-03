@@ -1,3 +1,8 @@
+
+"""
+Tests unitaires pour les fonctions de monitoring : statistiques, timings, drift, constantes, sécurité et filtres temporels.
+Vérifie la robustesse et la cohérence des calculs sur des cas simples ou limites.
+"""
 import numpy as np
 import pandas as pd
 
@@ -20,6 +25,9 @@ from monitoring.lib.filters import apply_time_filter
 # -----------------------
 
 def test_latency_stats_ms_empty():
+    """
+    Vérifie que latency_stats_ms retourne des zéros pour une série vide.
+    """
     s = pd.Series([], dtype=float)
     out = latency_stats_ms(s)
     assert out["p50"] == 0.0
@@ -30,6 +38,9 @@ def test_latency_stats_ms_empty():
 
 
 def test_latency_stats_ms_non_empty():
+    """
+    Vérifie que latency_stats_ms retourne des valeurs cohérentes pour une série non vide.
+    """
     s = pd.Series([10, 20, 30, 40, 50], dtype=float)
     out = latency_stats_ms(s)
     assert out["p50"] > 0
@@ -39,6 +50,9 @@ def test_latency_stats_ms_non_empty():
 
 
 def test_success_rate_and_error_rate():
+    """
+    Vérifie le calcul du taux de succès et d'erreur à partir d'une série de statuts HTTP.
+    """
     status = pd.Series([200, 200, 404, 500])
     assert success_rate(status) == 50.0
     assert error_rate(status) == 50.0
@@ -49,6 +63,9 @@ def test_success_rate_and_error_rate():
 # -----------------------
 
 def test_extract_timings_ok():
+    """
+    Vérifie que extract_timings extrait correctement les timings d'un DataFrame outputs.
+    """
     outputs = pd.DataFrame(
         {
             "timing": [
@@ -63,12 +80,18 @@ def test_extract_timings_ok():
 
 
 def test_extract_timings_missing_column():
+    """
+    Vérifie que extract_timings retourne un DataFrame vide si la colonne timing est absente.
+    """
     outputs = pd.DataFrame({"decision": ["A", "B"]})
     tdf = extract_timings(outputs)
     assert tdf.empty
 
 
 def test_compute_timing_stats_ok():
+    """
+    Vérifie que compute_timing_stats retourne des statistiques pour chaque timing.
+    """
     tdf = pd.DataFrame(
         {
             "db_ms": [10, 20, 30],
@@ -87,6 +110,9 @@ def test_compute_timing_stats_ok():
 # -----------------------
 
 def test_psi_from_dists_non_negative():
+    """
+    Vérifie que psi_from_dists retourne un PSI non négatif pour deux distributions.
+    """
     ref_p = np.array([0.5, 0.5])
     prod_p = np.array([0.4, 0.6])
     psi = psi_from_dists(ref_p, prod_p)
@@ -95,6 +121,9 @@ def test_psi_from_dists_non_negative():
 
 
 def test_prod_dist_numeric_sums_to_1():
+    """
+    Vérifie que prod_dist_numeric retourne une distribution qui somme à 1.
+    """
     prod_s = pd.Series([0.5, 1.5, 1.2, 2.5, 0.8])
     edges = [0, 1, 2, 3]
     labels = ["(0,1]", "(1,2]", "(2,3]"]  # labels attendus = str(pd.cut index) si tu utilises str(idx)
@@ -106,6 +135,9 @@ def test_prod_dist_numeric_sums_to_1():
 
 
 def test_prod_dist_numeric_empty_returns_zeros():
+    """
+    Vérifie que prod_dist_numeric retourne des zéros pour une série vide.
+    """
     prod_s = pd.Series([], dtype=float)
     edges = [0, 1, 2, 3]
     labels = ["a", "b", "c"]
@@ -114,6 +146,9 @@ def test_prod_dist_numeric_empty_returns_zeros():
 
 
 def test_prod_dist_categorical_sums_to_1():
+    """
+    Vérifie que prod_dist_categorical retourne une distribution qui somme à 1.
+    """
     prod_s = pd.Series(["A", "B", "A", "B", "A"])
     labels_ref = ["A", "B"]
     labels_out, prod_p = prod_dist_categorical(prod_s, labels_ref=labels_ref)
@@ -122,11 +157,17 @@ def test_prod_dist_categorical_sums_to_1():
 
 
 def test_count_drift():
+    """
+    Vérifie que count_drift compte correctement le nombre de features en drift selon un seuil.
+    """
     df = pd.DataFrame({"feature": ["a", "b"], "psi": [0.3, 0.1]})
     assert count_drift(df, threshold=0.25) == 1
 
 
 def test_compute_drift_table_basic():
+    """
+    Vérifie que compute_drift_table retourne un DataFrame de drift cohérent à partir d'inputs et de distributions de référence.
+    """
     prod_inputs = pd.DataFrame(
         {"feature_num": [0.5, 1.5, 2.5], "feature_cat": ["A", "B", "A"]}
     )
@@ -157,17 +198,26 @@ def test_compute_drift_table_basic():
 # -----------------------
 
 def test_constants_sane():
+    """
+    Vérifie la cohérence des constantes de monitoring (présence de clés attendues).
+    """
     assert "endpoint" in DEFAULTS
     assert isinstance(TIME_WINDOWS, list)
     assert "ok" in PSI_THRESHOLDS and "watch" in PSI_THRESHOLDS
 
 
 def test_security_excluded_features_is_set():
+    """
+    Vérifie que EXCLUDED_FEATURES est bien un set et contient SK_ID_CURR.
+    """
     assert isinstance(EXCLUDED_FEATURES, set)
     assert "SK_ID_CURR" in EXCLUDED_FEATURES
 
 
 def test_apply_time_filter_all_keeps_all():
+    """
+    Vérifie que apply_time_filter("all") ne filtre aucune ligne.
+    """
     now = pd.Timestamp.now()
     df = pd.DataFrame({"ts": [now - pd.Timedelta(days=10), now]})
     out = apply_time_filter(df, "all")
@@ -175,6 +225,9 @@ def test_apply_time_filter_all_keeps_all():
 
 
 def test_apply_time_filter_24h_filters():
+    """
+    Vérifie que apply_time_filter("24h") ne garde que les lignes des dernières 24h.
+    """
     now = pd.Timestamp.now()
     df = pd.DataFrame({"ts": [now - pd.Timedelta(hours=1), now - pd.Timedelta(days=3)]})
     out = apply_time_filter(df, "24h")

@@ -1,3 +1,10 @@
+
+"""
+Validation des données d'entrée pour l'API :
+ - Vérification des champs attendus, des types, des bornes et des valeurs autorisées
+ - Gestion des erreurs via ApiError pour retour structuré au client
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Set
@@ -13,14 +20,23 @@ BINARY_FIELDS = {
 
 
 def _is_number(x: Any) -> bool:
+    """
+    Vérifie si x est un nombre (int ou float, mais pas bool).
+    """
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
 def _is_int(x: Any) -> bool:
+    """
+    Vérifie si x est un entier (mais pas bool).
+    """
     return isinstance(x, int) and not isinstance(x, bool)
 
 
 def _finite_float(x: Any) -> float:
+    """
+    Convertit x en float et vérifie qu'il est fini (ni NaN, ni infini).
+    """
     f = float(x)
     if not math.isfinite(f):
         raise ValueError("non-finite")
@@ -28,6 +44,9 @@ def _finite_float(x: Any) -> float:
 
 
 def _is_binary_value(v: Any) -> bool:
+    """
+    Vérifie si v est une valeur binaire (booléen ou 0/1).
+    """
     return isinstance(v, bool) or (_is_int(v) and v in (0, 1))
 
 
@@ -38,6 +57,20 @@ def validate_payload(
     *,
     reject_unknown_fields: bool = True,
 ) -> Dict[str, Any]:
+    """
+    Valide le dictionnaire d'entrée utilisateur pour l'API.
+    Vérifie la présence, le type et la cohérence des champs attendus.
+    Lève ApiError en cas d'erreur de validation.
+
+    Args:
+        payload (dict): Données d'entrée utilisateur.
+        kept_features (list): Liste des features attendues.
+        cat_features (list): Liste des features catégorielles.
+        reject_unknown_fields (bool): Refuser les champs inconnus si True.
+
+    Returns:
+        dict: Payload validé (inchangé si tout est correct).
+    """
     kept_set: Set[str] = set(kept_features)
     cat_set: Set[str] = set(cat_features)
     num_set: Set[str] = (kept_set - cat_set) - BINARY_FIELDS

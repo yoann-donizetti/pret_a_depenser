@@ -154,7 +154,7 @@ notebooks/
 ---
 
 ## Structure du projet
-
+```
 pret-a-depenser/
 │
 ├── app/                           # API FastAPI (couche production)
@@ -194,6 +194,8 @@ pret-a-depenser/
 │   ├── 02_benchmark/              # Benchmark des modèles
 │   ├── 03_modeling/               # Sélection des features, tuning, seuil métier
 │   └── 04_preparation_API/        # Génération des artifacts pour l'API
+|   |__05_monitoring_drift/
+
 │
 ├── tests/                         # Tests unitaires pour valider le fonctionnement du projet
 ├── scripts/                       # Scripts utilitaires pour des tâches spécifiques
@@ -254,6 +256,46 @@ core/db/migrations/
 
 Exécution manuelle via PostgreSQL en environnement local.
 
+
+### Scripts d’administration de la base et de monitoring
+Le dossier scripts/ contient les outils opérationnels permettant :
+- d’initialiser la base
+- d’alimenter le feature store
+- de construire les distributions de référence (drift)
+- de simuler du trafic production
+
+#### Charger les features en base
+Remplit la table *features_store* à partir d’un CSV API-ready.
+```bash
+python scripts/01_load_features_store.py --csv examples/X_api.csv
+```
+- Exécute automatiquement la migration SQL si nécessaire
+- Insert ou update via UPSERT
+- Stockage en JSONB
+
+#### Contruire la distribution de référence (drift)
+Calcule les distributions de référence utilisées pour le PSI.
+```bash
+python scripts/02_build_reference_dist.py --csv examples/X_api.csv
+```
+- Génère les bins numériques
+- Stocke les proportions catégorielles
+- Remplit la table ref_feature_dist
+
+#### Simuler des requêtes production
+Permet de générer du trafic afin de :
+- remplir prod_requests
+- tester la latence
+- alimenter le monitoring
+
+**Exécution locale**
+```bash
+python scripts.03_simulate_requests --base-url "http://127.0.0.1:8000" --csv examples/X_api.csv --n 2000
+```
+**Exécution HF**
+```bash
+python scripts.03_simulate_requests --base-url "https://donizetti-yoann-pret-a-depenser-api.hf.space"  --csv examples/X_api.csv --n 2000
+```
 ---
 
 ## Déploiement
@@ -603,11 +645,11 @@ streamlit run monitoring/streamlit_app.py
 Un test de charge simulé a été réalisé afin d’évaluer la stabilité sous contrainte.(2000 requetes)
 ### Exécution locale
 ```bash
-python scripts.simulate_requests --base-url "http://127.0.0.1:8000" --csv examples/X_api.csv --n 2000
+python scripts.03_simulate_requests --base-url "http://127.0.0.1:8000" --csv examples/X_api.csv --n 2000
 ```
 ### Exécution HF
 ```bash
-python scripts.simulate_requests --base-url "http://127.0.0.1:8000" --csv examples/X_api.csv --n 2000
+python scripts.03_simulate_requests --base-url "https://donizetti-yoann-pret-a-depenser-api.hf.space"  --csv examples/X_api.csv --n 2000
 ```
 
 ## Optimisations post-déploiement

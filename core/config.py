@@ -1,3 +1,10 @@
+
+"""
+Configuration centrale du projet :
+ - Gestion des variables d'environnement et des chemins principaux
+ - Centralisation des paramètres globaux (environnement, base, HuggingFace...)
+"""
+
 from __future__ import annotations
 
 import os
@@ -5,6 +12,16 @@ from pathlib import Path
 
 
 def _env(key: str, default: str | None = None) -> str | None:
+    """
+    Récupère la valeur d'une variable d'environnement, avec fallback et nettoyage.
+
+    Args:
+        key (str): Nom de la variable d'environnement.
+        default (str | None): Valeur par défaut si non trouvée.
+
+    Returns:
+        str | None: Valeur nettoyée ou None si absente.
+    """
     v = os.getenv(key, default)
     if v is None:
         return None
