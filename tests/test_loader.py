@@ -1,3 +1,8 @@
+
+"""
+Tests unitaires pour les fonctions de chargement de modèle (local et HuggingFace) du module loader.
+Vérifie la gestion des fichiers manquants, la lecture correcte des artefacts et l'intégration avec CatBoost.
+"""
 from pathlib import Path
 import json
 import pytest
@@ -5,12 +10,18 @@ import pytest
 import app.model.loader as loader
 
 class DummyCat:
+    """
+    Classe factice pour simuler CatBoostClassifier lors des tests.
+    """
     def __init__(self):
         self.loaded = None
     def load_model(self, path):
         self.loaded = path
 
 def test_load_bundle_from_local_missing_files(tmp_path, monkeypatch):
+    """
+    Vérifie que la fonction load_bundle_from_local lève une FileNotFoundError si un des fichiers est manquant.
+    """
     monkeypatch.setattr(loader, "CatBoostClassifier", DummyCat)
 
     with pytest.raises(FileNotFoundError):
@@ -22,6 +33,9 @@ def test_load_bundle_from_local_missing_files(tmp_path, monkeypatch):
         )
 
 def test_load_bundle_from_local_ok(tmp_path, monkeypatch):
+    """
+    Vérifie que load_bundle_from_local charge correctement tous les artefacts et retourne les bons objets/valeurs.
+    """
     monkeypatch.setattr(loader, "CatBoostClassifier", DummyCat)
 
     model_file = tmp_path / "model.cb"
@@ -47,6 +61,10 @@ def test_load_bundle_from_local_ok(tmp_path, monkeypatch):
     assert model.loaded == str(model_file)
 
 def test_load_bundle_from_hf_ok(tmp_path, monkeypatch):
+    """
+    Vérifie que load_bundle_from_hf télécharge et charge correctement les artefacts depuis HuggingFace.
+    Simule le téléchargement en redirigeant les chemins vers des fichiers temporaires.
+    """
     monkeypatch.setattr(loader, "CatBoostClassifier", DummyCat)
 
     # Simule les fichiers téléchargés HF => on renvoie des paths tmp

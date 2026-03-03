@@ -1,13 +1,25 @@
+
+"""
+Tests d'intégration pour l'endpoint /predict de l'API.
+Vérifie les cas de succès, d'identifiant inconnu et de rejet de champs supplémentaires.
+"""
 # tests/test_predict_endpoint.py
 import app.main as main
 
 def _force_ready():
+    """
+    Met l'API dans un état 'prêt' en initialisant les variables globales nécessaires.
+    """
     main.MODEL = object()
     main.KEPT_FEATURES = ["SK_ID_CURR", "EXT_SOURCE_1"]
     main.CAT_FEATURES = []
     main.THRESHOLD = 0.5
 
 def test_predict_ok_id_only(client, monkeypatch):
+    """
+    Vérifie qu'une prédiction fonctionne avec uniquement SK_ID_CURR fourni.
+    Simule les dépendances et capture l'événement de log.
+    """
     def fake_get_features_by_id(sk_id):
         return {"SK_ID_CURR": sk_id, "EXT_SOURCE_1": 0.5}
 
@@ -59,6 +71,9 @@ def test_predict_ok_id_only(client, monkeypatch):
     assert events[0]["status_code"] == 200
 
 def test_predict_unknown_id(client, monkeypatch):
+    """
+    Vérifie que l'API retourne une erreur 404 ou 400 si l'identifiant client est inconnu.
+    """
     def fake_get_features_by_id(_sk_id):
         return None
 
@@ -69,6 +84,9 @@ def test_predict_unknown_id(client, monkeypatch):
     assert r.status_code in (404, 400)  # selon ton implémentation
 
 def test_predict_rejects_extra_fields(client):
+    """
+    Vérifie que l'API rejette les champs supplémentaires non attendus dans la requête (si extra="forbid").
+    """
     # si schemas.py est extra="forbid"
     r = client.post("/predict", json={"SK_ID_CURR": 100001, "AMT_CREDIT": 123})
     assert r.status_code == 422

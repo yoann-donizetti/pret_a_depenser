@@ -1,3 +1,8 @@
+
+"""
+Tests complémentaires pour augmenter la couverture du code sur des branches spécifiques.
+Vérifie les comportements de fallback, de gestion d'erreur et d'appel de modèle.
+"""
 import inspect
 import pytest
 
@@ -6,6 +11,11 @@ import app.model.predict as predmod
 
 
 def test_bundle_source_auto_fallbacks(monkeypatch):
+    """
+    Teste le fallback automatique de la fonction _bundle_source selon la config.
+    - Si BUNDLE_SOURCE est invalide et HF_REPO_ID présent, retourne 'hf'.
+    - Si BUNDLE_SOURCE est invalide et HF_REPO_ID absent, retourne 'local'.
+    """
     # Cas 1: BUNDLE_SOURCE invalide + HF_REPO_ID présent => "hf"
     monkeypatch.setattr(mainmod.config, "BUNDLE_SOURCE", "weird", raising=False)
     monkeypatch.setattr(mainmod.config, "HF_REPO_ID", "some/repo", raising=False)
@@ -17,6 +27,9 @@ def test_bundle_source_auto_fallbacks(monkeypatch):
 
 
 def test_safe_log_ne_crashe_pas(monkeypatch):
+    """
+    Vérifie que _safe_log ne fait jamais planter l'API même si insert_prod_request lève une exception.
+    """
     def boom(_event):
         raise RuntimeError("db down")
 
@@ -27,6 +40,9 @@ def test_safe_log_ne_crashe_pas(monkeypatch):
 
 
 def test_call_model_thread_count_branch():
+    """
+    Teste la fonction _call_model pour les cas où la méthode accepte ou non le paramètre thread_count.
+    """
     class M:
         # accepte thread_count
         def f(self, X, thread_count=None):
