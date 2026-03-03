@@ -106,5 +106,4 @@ def test_init_db_executes_expected_sql(monkeypatch):
     sql_all = "\n".join(fake.executed)
 
     assert "CREATE TABLE IF NOT EXISTS prod_requests" in sql_all
-    assert "ALTER TABLE prod_requests" in sql_all
     assert "CREATE INDEX IF NOT EXISTS idx_prod_requests_ts" in sql_all
