@@ -1,4 +1,9 @@
-# scripts/analyze_prod_logs.py
+"""
+Script d'analyse des logs de production API :
+- Calcule les métriques d'exploitation (latence, taux d'erreur)
+- Calcule le drift PSI entre les distributions de features en production et les distributions de référence
+- Génère des rapports JSON et CSV pour le monitoring
+"""
 from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
@@ -20,6 +25,13 @@ def _psi(p: List[float], q: List[float], eps: float = 1e-6) -> float:
     - p : distribution prod
     - q : distribution ref
     """
+    """
+    Calcule le Population Stability Index (PSI) entre deux distributions p et q.
+    - p : distribution production
+    - q : distribution référence
+    Retourne :
+        float : valeur du PSI
+    """
     s = 0.0
     for pi, qi in zip(p, q):
         pi2 = max(eps, float(pi))
@@ -32,6 +44,11 @@ def _prod_dist_numeric(values: pd.Series, edges: List[float]) -> Tuple[List[str]
     """
     Calcule la distrib prod sur les bins (edges) de la ref.
     Retourne labels + p (normalisé).
+    """
+    """
+    Calcule la distribution de la production sur les bins numériques de la référence.
+    Retourne :
+        (labels, p) : labels des bins et proportions normalisées
     """
     x = pd.to_numeric(values, errors="coerce").dropna()
     if len(x) == 0:
@@ -57,6 +74,13 @@ def _prod_dist_categorical(values: pd.Series, ref_labels: List[str]) -> Tuple[Li
     Calcule la distrib prod sur les labels de la ref.
     - Toute modalité inconnue -> "__OTHER__" si présent dans la ref.
     - NaN -> "__MISSING__"
+    """
+    """
+    Calcule la distribution de la production sur les labels catégoriels de la référence.
+    - Modalités inconnues mappées sur '__OTHER__' si présent dans la ref
+    - NaN mappé sur '__MISSING__'
+    Retourne :
+        (labels, p) : labels de la ref et proportions normalisées
     """
     x = values.fillna("__MISSING__").astype(str)
     if len(x) == 0:
@@ -86,6 +110,13 @@ def _prod_dist_categorical(values: pd.Series, ref_labels: List[str]) -> Tuple[Li
 
 
 def main() -> None:
+    """
+    Point d'entrée principal du script :
+    - Charge les logs de production depuis la base
+    - Calcule les métriques d'exploitation (latence, erreurs)
+    - Calcule le drift PSI pour chaque feature
+    - Génère les rapports de monitoring (JSON, CSV)
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--endpoint", default="/predict")
     ap.add_argument("--limit", type=int, default=5000)
@@ -95,14 +126,14 @@ def main() -> None:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # 1) logs prod (DB)
+    # 1) Récupération des logs de production depuis la base de données
     logs = select_prod_requests(endpoint=args.endpoint, limit=int(args.limit))
     if not logs:
         raise RuntimeError("Aucun log trouvé (ou DB non connectée).")
 
     df = pd.DataFrame(logs)
 
-    # 2) OPS metrics (taux d'erreur + latence)
+    # 2) Calcul des métriques d'exploitation (latence, taux d'erreur)
     total = int(len(df))
     status = pd.to_numeric(df["status_code"], errors="coerce").fillna(0).astype(int)
     errors = int((status >= 400).sum())
@@ -126,7 +157,7 @@ def main() -> None:
         json.dumps(ops_report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    # 3) Drift PSI (inputs prod vs ref_feature_dist)
+    # 3) Calcul du drift PSI entre  la production et la référence pour chaque feature
     inputs_series = df.get("inputs")
     if inputs_series is None:
         raise RuntimeError("La colonne 'inputs' est absente des logs.")
@@ -206,11 +237,13 @@ def main() -> None:
             psi_val = _psi(prod_p, ref_p)
             rows_out.append({"feature": feat, "kind": kind, "psi": round(psi_val, 6), "note": ""})
 
+    # 4) Génération des rapports de drift PSI (CSV, JSON)
     psi_df = pd.DataFrame(rows_out)
     psi_df_sorted = psi_df.sort_values(by="psi", ascending=False, na_position="last")
     psi_df_sorted.to_csv(outdir / "psi_table.csv", index=False)
 
     def _count_gt(th: float) -> int:
+        """Compte le nombre de features dont le PSI dépasse un seuil donné."""
         return int((psi_df["psi"].dropna() > th).sum())
 
     psi_summary = {
@@ -226,6 +259,7 @@ def main() -> None:
         json.dumps(psi_summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
+    # 5) Affichage des chemins des rapports générés
     print(f"OK: écrit {outdir / 'monitoring_report.json'}")
     print(f"OK: écrit {outdir / 'psi_table.csv'}")
     print(f"OK: écrit {outdir / 'psi_summary.json'}")

@@ -1,3 +1,12 @@
+
+"""
+Application Streamlit pour le monitoring de l'API PAD :
+    - Suivi des performances (latence, erreurs, timings détaillés)
+    - Détection de drift de données (PSI)
+    - Visualisation des distributions de features et décisions
+    - Paramétrage interactif via la sidebar
+"""
+
 from __future__ import annotations
 
 import sys
@@ -35,18 +44,19 @@ from monitoring.lib.charts import (
     bar_ref_vs_prod,
 )
 
-# -----------------------
-# Setup
-# -----------------------
+###########################################################
+# Initialisation de l'environnement et de la base de données
+# (variables d'environnement, connexion DB, config Streamlit)
+###########################################################
 load_dotenv()
 init_db()
 
 st.set_page_config(page_title="PAD — Monitoring", layout="wide")
 st.title("Monitoring — API Ops + Data Drift (référence en DB)")
 
-# -----------------------
-# Sidebar
-# -----------------------
+###########################################################
+# Sidebar : paramètres utilisateur pour filtrer et configurer l'affichage
+###########################################################
 with st.sidebar:
     st.header("Inputs")
     endpoint = st.text_input("Endpoint", DEFAULTS["endpoint"])
@@ -73,9 +83,9 @@ with st.sidebar:
 
 limit_val = None if int(limit) == 0 else int(limit)
 
-# -----------------------
-# Load prod data
-# -----------------------
+###########################################################
+# Chargement des données de production depuis la base
+###########################################################
 prod_meta, prod_inputs, prod_outputs, rows = load_prod_data(
     endpoint=endpoint,
     limit=limit_val,
@@ -89,9 +99,9 @@ if prod_meta.empty:
 
 st.success(f"DB chargée: {len(prod_meta)} requêtes | inputs: {prod_inputs.shape[0]}×{prod_inputs.shape[1]}")
 
-# -----------------------
-# OPS
-# -----------------------
+###########################################################
+# Section 1 : Analyse des indicateurs de santé de l'API (OPS)
+###########################################################
 st.subheader("1) Santé API (ops)")
 
 lat_total = pd.to_numeric(prod_meta["latency_ms"], errors="coerce")
@@ -127,9 +137,9 @@ st.plotly_chart(hist_latency(lat_total, "Distribution latence totale (ms)"), use
 status_counts = prod_meta["status_code"].value_counts(dropna=False).sort_index()
 st.plotly_chart(bar_status_codes(status_counts, "Codes HTTP"), use_container_width=True)
 
-# -----------------------
-# Timings détaillés
-# -----------------------
+###########################################################
+# Analyse détaillée des timings par composant (DB, validation, inférence, total)
+###########################################################
 st.subheader("Timings détaillés (ms) — DB / Validation / Inference / Total")
 
 timing_df = extract_timings(prod_outputs)
@@ -175,9 +185,9 @@ else:
     st.plotly_chart(hist_latency(timing_df["validation_ms"], "Validation time (ms)"), use_container_width=True)
     st.plotly_chart(hist_latency(timing_df["total_ms"], "Total (timing) (ms)"), use_container_width=True)
 
-# -----------------------
-# Décisions
-# -----------------------
+###########################################################
+# Analyse des décisions prises par l'API (accepté/refusé)
+###########################################################
 st.subheader("Décisions (prod)")
 
 if "decision" in prod_outputs.columns:
@@ -187,9 +197,9 @@ if "decision" in prod_outputs.columns:
 else:
     st.info("Aucune colonne 'decision' trouvée dans outputs (logs).")
 
-# -----------------------
-# Drift PSI
-# -----------------------
+###########################################################
+# Section 2 : Analyse du drift de données (PSI) par rapport à la référence
+###########################################################
 st.subheader("2) Data Drift (PSI) — référence en DB")
 
 ref_rows = load_reference()
@@ -208,9 +218,9 @@ topk = drift_df.dropna().head(int(DEFAULTS["topk_drift"])).copy()
 topk = topk.sort_values("psi", ascending=False)
 st.plotly_chart(bar_top_drift(topk, f"Top {DEFAULTS['topk_drift']} PSI (drift)"), use_container_width=True)
 
-# -----------------------
-# Détail feature
-# -----------------------
+###########################################################
+# Section 3 : Détail d'une feature, comparaison distribution référence vs production
+###########################################################
 st.subheader("3) Détail feature (ref vs prod)")
 
 ref_features = [r["feature"] for r in ref_rows if r.get("feature") not in EXCLUDED_FEATURES]

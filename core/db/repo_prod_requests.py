@@ -1,3 +1,6 @@
+
+# Module de gestion des requêtes de production :
+# Permet d'insérer et de récupérer les requêtes faites à l'API en base de données pour le suivi et la traçabilité.
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,6 +16,12 @@ _SELECT_SQL = (_SQL_DIR / "prod_requests_select.sql").read_text(encoding="utf-8"
 
 
 def insert_prod_request(event: Dict[str, Any]) -> None:
+    """
+    Insère une requête de production dans la base de données.
+    
+    Paramètres :
+        event (dict) : Dictionnaire contenant les informations de la requête (endpoint, status_code, latency_ms, sk_id_curr, inputs, outputs, error, message).
+    """
     conn = get_conn()
     if conn is None:
         return
@@ -31,6 +40,16 @@ def insert_prod_request(event: Dict[str, Any]) -> None:
 
 
 def select_prod_requests(endpoint: str = "/predict", limit: int = 1000) -> List[Dict[str, Any]]:
+    """
+    Récupère les requêtes de production enregistrées pour un endpoint donné.
+    
+    Paramètres :
+        endpoint (str) : Nom de l'endpoint à filtrer (par défaut '/predict').
+        limit (int) : Nombre maximum de requêtes à retourner (par défaut 1000).
+    
+    Retour :
+        Liste de dictionnaires contenant les informations des requêtes.
+    """
     conn = get_conn()
     if conn is None:
         return []

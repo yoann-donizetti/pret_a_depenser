@@ -1,9 +1,17 @@
+
+"""
+Tests unitaires pour la fonction load_prod_data (chargement et transformation des logs de production).
+Vérifie le comportement avec ou sans données, et l'exclusion de features.
+"""
 import pandas as pd
 
 from monitoring.lib.data import load_prod_data
 
 
 def test_load_prod_data_empty(monkeypatch):
+    """
+    Vérifie que load_prod_data retourne des DataFrames vides et une liste vide si aucun log n'est présent.
+    """
     # mock DB read to return no logs
     monkeypatch.setattr("monitoring.lib.data.select_prod_requests", lambda endpoint, limit: [])
 
@@ -21,6 +29,9 @@ def test_load_prod_data_empty(monkeypatch):
 
 
 def test_load_prod_data_ok(monkeypatch):
+    """
+    Vérifie que load_prod_data retourne des DataFrames non vides et filtre bien les features exclues.
+    """
     fake_rows = [
         {
             "ts": pd.Timestamp.now(),

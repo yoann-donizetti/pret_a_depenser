@@ -13,6 +13,15 @@ _UPSERT_SQL = (_SQL_DIR / "features_store_upsert.sql").read_text(encoding="utf-8
 
 
 def get_features_by_id(sk_id_curr: int) -> Optional[Dict[str, Any]]:
+    """
+    Récupère les features associées à un identifiant client (sk_id_curr) depuis la base de données.
+    
+    Paramètres :
+        sk_id_curr (int) : Identifiant du client.
+    
+    Retour :
+        dict ou None : Dictionnaire des features si trouvé, sinon None.
+    """
     conn = get_conn()
     if conn is None:
         return None
@@ -25,6 +34,13 @@ def get_features_by_id(sk_id_curr: int) -> Optional[Dict[str, Any]]:
 
 
 def upsert_features(sk_id_curr: int, data: Dict[str, Any]) -> None:
+    """
+    Insère ou met à jour les features d'un client dans la base de données.
+    
+    Paramètres :
+        sk_id_curr (int) : Identifiant du client.
+        data (dict) : Dictionnaire des features à insérer ou mettre à jour.
+    """
     conn = get_conn()
     if conn is None:
         return

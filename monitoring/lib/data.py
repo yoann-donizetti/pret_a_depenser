@@ -1,3 +1,19 @@
+"""
+Module de gestion et chargement des données pour le monitoring.
+
+Ce module fournit des fonctions utilitaires pour :
+- Charger et filtrer les données de production issues des requêtes API (inputs, outputs, métadonnées).
+- Récupérer les distributions de référence des features depuis la base de données.
+- Exclure certaines colonnes sensibles ou inutiles des jeux de données.
+
+Fonctions principales :
+- load_prod_data : charge les données de production pour un endpoint donné, avec filtrage temporel et exclusion de colonnes.
+- load_reference : récupère toutes les distributions de référence des features.
+- load_reference_one : récupère la distribution de référence d'un feature spécifique.
+
+Ces fonctions sont utilisées pour l'analyse de la dérive, la comparaison entre production et référence, et la visualisation des distributions.
+"""
+
 from __future__ import annotations
 
 from typing import Dict, List, Tuple
@@ -19,8 +35,39 @@ def load_prod_data(
     excluded_features: set[str],
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[Dict]]:
     """
-    Retourne:
-      prod_meta_df, prod_inputs_df, prod_outputs_df, raw_rows_filtered
+    Charge et filtre les données de production pour un endpoint donné.
+
+    Paramètres
+    ----------
+    endpoint : str
+        Nom de l'endpoint à interroger.
+    limit : int | None
+        Nombre maximum de requêtes à charger (None pour tout charger).
+    time_window : str
+        Fenêtre temporelle à appliquer pour filtrer les données (ex: '7d', '30d').
+    excluded_features : set[str]
+        Ensemble des noms de colonnes à exclure des inputs.
+
+    Retourne
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[Dict]]
+        - prod_meta_df : DataFrame des métadonnées (timestamp, endpoint, status_code, etc.)
+        - prod_inputs_df : DataFrame des features d'entrée (inputs)
+        - prod_outputs_df : DataFrame des features de sortie (outputs)
+        - raw_rows_filtered : Liste des requêtes filtrées (dictionnaires bruts)
+
+    Exemple
+    -------
+    >>> from monitoring.lib.data import load_prod_data
+    >>> meta, inputs, outputs, rows = load_prod_data(
+    ...     endpoint="predict",
+    ...     limit=1000,
+    ...     time_window="7d",
+    ...     excluded_features={"user_id", "ip"}
+    ... )
+    >>> print(meta.head())
+    >>> print(inputs.head())
+    >>> print(outputs.head())
     """
     rows = select_prod_requests(endpoint=endpoint, limit=(limit or 1_000_000))
     if not rows:
@@ -42,8 +89,41 @@ def load_prod_data(
 
 
 def load_reference() -> List[Dict]:
+    """
+    Charge toutes les distributions de référence des features depuis la base de données.
+
+    Retourne
+    -------
+    List[Dict]
+        Liste de dictionnaires représentant les distributions de référence pour chaque feature.
+
+    Exemple
+    -------
+    >>> from monitoring.lib.data import load_reference
+    >>> ref = load_reference()
+    >>> print(ref[0])  # Affiche la distribution de référence du premier feature
+    """
     return load_all_ref()
 
 
 def load_reference_one(feature: str) -> Dict | None:
+    """
+    Charge la distribution de référence d'un feature donné depuis la base de données.
+
+    Paramètres
+    ----------
+    feature : str
+        Nom du feature dont on souhaite récupérer la distribution de référence.
+
+    Retourne
+    -------
+    Dict | None
+        Dictionnaire représentant la distribution de référence du feature, ou None si non trouvé.
+
+    Exemple
+    -------
+    >>> from monitoring.lib.data import load_reference_one
+    >>> ref = load_reference_one("age")
+    >>> print(ref)
+    """
     return load_one_ref(feature)

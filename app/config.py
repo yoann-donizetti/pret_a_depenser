@@ -1,3 +1,11 @@
+
+"""
+Configuration centrale de l'application :
+ - Chargement des variables d'environnement (.env)
+ - Définition des chemins des modèles, artefacts et paramètres principaux
+ - Support du mode local et HuggingFace pour les artefacts
+"""
+
 from __future__ import annotations
 
 import os
@@ -10,6 +18,16 @@ load_dotenv(override=False)
 
 
 def _env(key: str, default: str | None = None) -> str | None:
+    """
+    Récupère la valeur d'une variable d'environnement, avec fallback et nettoyage.
+
+    Args:
+        key (str): Nom de la variable d'environnement.
+        default (str | None): Valeur par défaut si non trouvée.
+
+    Returns:
+        str | None: Valeur nettoyée ou None si absente.
+    """
     v = os.getenv(key, default)
     if v is None:
         return None
